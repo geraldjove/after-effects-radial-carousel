@@ -1,0 +1,23 @@
+# Local settings and credentials
+.env
+.env.*
+*.pem
+*.key
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# After Effects projects, renders, and native test output
+*.aep
+*.aepx
+*.mp4
+*.mov
+Adobe After Effects Auto-Save/
+/tests/last-run.txt
+/tests/*-preview.png
+
+# Optional local development output
+node_modules/
+*.log
