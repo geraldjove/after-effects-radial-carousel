@@ -1,10 +1,10 @@
-/* Radial Carousel 1.6.4 | 2026-09-10
+/* Radial Carousel 1.6.5 | 2026-09-10
    Run with File > Scripts > Run Script File, or install in ScriptUI Panels.
    No plug-ins, network access, or file-writing permission required.
 */
 (function (thisObj) {
     var TITLE = "Radial Carousel";
-    var VERSION = "1.6.4";
+    var VERSION = "1.6.5";
     var TAG = "RadialCarousel:1";
     var files = [];
     var boundController = null;
@@ -130,8 +130,9 @@
                 'var s = Math.max(1,parent.effect("Image Size")(1))/Math.max(thisLayer.source.width*thisLayer.source.pixelAspect/thisComp.pixelAspect,thisLayer.source.height)*100;\n' +
                 'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit + focusWeight +
                 's *= 1-o[1]*f*(1-Math.max(0.1,Math.min(1,parent.effect("Side Image Scale")(1)/100)));\n}\n[s,s];';
-            tr.property("ADBE Rotate Z").expression = angle +
-                'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit + '}\n' + bendRotationExpression() +
+            tr.property("ADBE Anchor Point").expression = bendAnchorExpression(angle, orbit);
+            tr.property("ADBE Rotate Z").expression = angle + bendRotationExpression(true) +
+                'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit + '}\n' +
                 'var offset = parent.effect("Image Rotation Offset")(1);\n' +
                 'parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation + offset : a + 90 + offset;';
             tr.property("ADBE Opacity").expression = angle +
@@ -303,17 +304,54 @@
             '    }\n  }\n  return p;\n}\n';
     }
 
-    function bendRotationExpression() {
-        // A bent circle's normal scales the other axis from its position.
-        return '// RC bend rotation\nif (parent.effect("Half Circle")(1) > 0.5 && n > 1) {\n' +
+    function bendRotationExpression(hasOrbit) {
+        // A circular bow has one moving center; its tangent stays continuous at zero bend.
+        return '// RC bend rotation v2\nif (parent.effect("Half Circle")(1) > 0.5 && n > 1) {\n' +
             '  var b = Math.max(0, Math.min(200, parent.effect("Bend")(1))) / 100;\n' +
             '  var start = parent.effect("Start Angle")(1);\n' +
-            '  if (b === 0) { a = start + 90; }\n' +
-            '  else if (b !== 1) {\n' +
-            '    var theta = (a-start)*Math.PI/180;\n' +
-            '    var normal = Math.atan2(Math.sin(theta), b*Math.cos(theta));\n' +
-            '    a += Math.atan2(Math.sin(normal-theta), Math.cos(normal-theta))*180/Math.PI;\n' +
+            '  var h = 2*Math.atan(b);\n' +
+            '  a = start + 90 + ((a-start)/90-1)*h*180/Math.PI;\n' +
+            '  if (' + (hasOrbit ? 'parent.effect("Unfolded Orbit")(1) < 0.5' : 'true') + ') {\n' +
+            '    a += parent.transform.rotation*(Math.sin(h)-1);\n' +
             '  }\n}\n';
+    }
+
+    function bendAnchorExpression(angle, orbit) {
+        // Offset the source anchor in its own coordinates, so the generated Position remains
+        // recoverable. Evaluate the moving circle center analytically: no infinite pivot at Bend 0.
+        return '// RC bend anchor\n' + angle + radiusExpression() +
+            'var center = [thisLayer.source.width/2, thisLayer.source.height/2];\n' +
+            'if (parent.effect("Half Circle")(1) > 0.5 && n > 1) {\n' +
+            'var b = Math.max(0,Math.min(200,parent.effect("Bend")(1)))/100;\n' +
+            'var h = 2*Math.atan(b), start = parent.effect("Start Angle")(1)*Math.PI/180;\n' +
+            'function sinc(x) { return Math.abs(x)<0.0001 ? 1-x*x/6+x*x*x*x/120 : Math.sin(x)/x; }\n' +
+            'function turn(p,t) { return [p[0]*Math.cos(t)-p[1]*Math.sin(t),p[0]*Math.sin(t)+p[1]*Math.cos(t)]; }\n' +
+            'function bow(slot,travel) {\n' +
+            '  var q = 1-2*slot/(n-1), k = q-travel*sinc(h), phi = h*k;\n' +
+            '  var x = r*k*sinc(phi)/sinc(h);\n' +
+            '  var y = r*h*(1-k*k)*sinc((h+phi)/2)*sinc((h-phi)/2)/(2*sinc(h));\n' +
+            '  return turn([x,y],start);\n}\n' +
+            'var pr = parent.transform.rotation*Math.PI/180, target;\n' +
+            (orbit ?
+                'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit +
+                '  var travelAngle = dir*travel*Math.PI/180;\n' +
+                '  target = turn(bow(slot,0),travelAngle);\n' +
+                '  var focus = bow(0,0);\n' +
+                '  if (o[2]>1 && o[2]<2) {\n' +
+                '    var progress = (o[2]-1)*n, index = Math.floor(progress), mix = progress-index;\n' +
+                '    var from = (n-dir*index%n)%n, to = (n-dir*(index+1)%n)%n;\n' +
+                '    var f0 = bow(from,0), f1 = bow(to,0);\n' +
+                '    var c0 = turn([r,0],start+from*step*Math.PI/180), c1 = turn([r,0],start+to*step*Math.PI/180);\n' +
+                '    var correction = turn([(f0[0]-c0[0])*(1-mix)+(f1[0]-c1[0])*mix,(f0[1]-c0[1])*(1-mix)+(f1[1]-c1[1])*mix],travelAngle);\n' +
+                '    focus = [focus[0]+correction[0],focus[1]+correction[1]];\n' +
+                '  }\n' +
+                '  target = [o[0]*target[0]-o[1]*focus[0],o[0]*target[1]-o[1]*focus[1]];\n' +
+                '} else { target = turn(bow(slot,pr),-pr); }\n' :
+                'target = turn(bow(slot,pr),-pr);\n') +
+            'var p = transform.position, rot = transform.rotation*Math.PI/180, scale = transform.scale;\n' +
+            'var d = turn([p[0]-target[0],p[1]-target[1]],-rot);\n' +
+            'center = [center[0]+d[0]/(scale[0]/100*thisLayer.source.pixelAspect/thisComp.pixelAspect),center[1]+d[1]/(scale[1]/100)];\n' +
+            '}\ncenter;';
     }
 
     function angleExpression(slot, count) {
@@ -427,12 +465,17 @@
                     if (bent !== position.expression) { position.expression = bent; }
                 }
                 var rotation = child.property("ADBE Transform Group").property("ADBE Rotate Z");
-                if (rotation.expression.indexOf('// RC bend rotation') < 0) {
+                if (rotation.expression.indexOf('// RC bend rotation v2') < 0) {
                     // Replace the v1.6.3 position-based rotation, including on already-updated rigs.
-                    var oldRotation = rotation.expression.replace(
+                    var oldRotation = rotation.expression.replace(/\/\/ RC bend rotation\r?\n[\s\S]*?\r?\n\}\r?\n/, '').replace(
                         /\/\/ RC bend\r?\nfunction rcBend\(p\) \{[\s\S]*?\r?\n\}\r?\nvar original =[\s\S]*?\r?\n\}\r?\n/, '');
                     var rotated = oldRotation.replace(/^(var a = [^\r\n]+;\r?\n)/m, '$1' + bendRotationExpression());
                     if (rotated !== rotation.expression) { rotation.expression = rotated; }
+                }
+                var slotMatch = position.expression.match(/var slot = (\d+), n = (\d+);/);
+                if (slotMatch) {
+                    child.property("ADBE Transform Group").property("ADBE Anchor Point").expression =
+                        bendAnchorExpression(angleExpression(Number(slotMatch[1]), Number(slotMatch[2])));
                 }
             }
         }
@@ -602,6 +645,7 @@
                 tr.property("ADBE Anchor Point").setValue([footage[i].width / 2, footage[i].height / 2]);
                 // Slot is independent of timeline index, layer names, and other carousels.
                 var angle = angleExpression(i, footage.length);
+                tr.property("ADBE Anchor Point").expression = bendAnchorExpression(angle);
                 tr.property("ADBE Position").expression = angle +
                     radiusExpression() + bendExpression() +
                     'var rad = a * Math.PI / 180;\nrcBend([r * Math.cos(rad), r * Math.sin(rad)]);';
@@ -721,7 +765,7 @@
     arc.selection = arc.items[0];
     arc.helpTip = "Half circle includes both endpoints. Start angle chooses the first endpoint; Speed rotates the whole arrangement.";
     var bend = field(layout, "Bend (%)", 100);
-    bend.helpTip = "Half circle: 0 = flat, 100 = semicircle, 200 = twice the bow depth. The two endpoints stay fixed.";
+    bend.helpTip = "Half circle: 0 = an evenly spaced row, 100 = semicircle, 200 = twice the bow depth. Anchors follow the bend; endpoints stay fixed at zero travel.";
     arc.onChange = function () { bend.enabled = arc.selection === arc.items[1]; };
     arc.onChange();
     var startAngle = field(layout, "Start angle (degrees)", -90);

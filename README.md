@@ -1,6 +1,6 @@
 # Radial Carousel
 
-**Version 1.6.4.** An After Effects ScriptUI panel for
+**Version 1.6.5.** An After Effects ScriptUI panel for
 creating and editing 2D carousels from still images and precomps. Includes the new
 **Unfolded Orbit** sequence, continuous upright/radial orbits, rounded corners,
 seeded arrangements, recovery of existing carousels, a **180° half-circle** layout,
@@ -9,8 +9,9 @@ adjustable **Gap** between images, and **Bend** for a flatter or deeper half-cir
 This version combines Unfolded Orbit with **Layout → Arc**, **Gap (px)**, and **Bend (%)**. Close and
 reopen the updated script to load the new controls; replace any installed copy too.
 
-Version 1.6.4 adds Bend and Follow arc / bend. For a fixed version, use the
-[v1.6.4 script](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/tags/v1.6.4/Radial%20Carousel.jsx).
+Version 1.6.5 corrects crowded end cards with moving anchors and a circular bow.
+For a fixed version, use the
+[v1.6.5 script](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/tags/v1.6.5/Radial%20Carousel.jsx).
 
 [Download Radial Carousel.jsx](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/heads/main/Radial%20Carousel.jsx), or use **Code > Download ZIP** for the script, documentation, and tests.
 
@@ -63,27 +64,32 @@ Choose **Half circle (180 degrees)**, then adjust **Layout → Bend (%)**:
 | 100% | The original semicircle. |
 | 150–200% | A deeper bow. |
 
-Bend changes the depth perpendicular to the line between the endpoints; the endpoints
-stay fixed. **Start angle** turns that line and its bow together. Images keep their
-size and proportions. **Follow arc / bend** rotates each image or precomp so its
-horizontal edge follows the curve's tangent. At Bend 0, every card is parallel to
-the endpoint line, including the center and end cards. **Keep images upright**
-stays level. Image rotation offset applies to either choice. Only the carousel
-layer rotates; source precomp contents are unchanged.
+Bend changes a circular bow's depth while keeping the two endpoint centers fixed
+at zero travel. **Start angle** turns that line and bow together. Cards are equally
+spaced along the circular arc, including at both ends; Bend 0 is an evenly spaced
+flat row. Images retain their size and proportions. **Follow arc / bend** rotates
+each image or precomp along that bow, with continuous end-card rotation through 0.
+**Keep images upright** stays level; Image rotation offset applies to either choice.
 
-With a nonzero Bend, the exact endpoints retain perpendicular tangents; at exactly
-0 they switch to the parallel row. Avoid crossing 0 when keyframing if that end-card
-rotation change is unwanted.
+Each generated image's **Anchor Point** now compensates automatically for Bend,
+rotation, and scale. Its visible center can differ from its Position property.
+In Continuous orbit, the effective pivot follows the bow's changing circle center,
+so cards keep equal spacing during travel. Speed uses the original radius as its
+distance reference: shallow bows turn more slowly around their larger circle, and
+Bend 0 becomes straight-line travel. Unfolded Orbit moves the bowed arrangement
+together and retains centered image holds. Source precomp contents are unchanged.
 
 It works in both animation modes and can be keyframed with the controller's **Bend**
 slider. Full circles and single images ignore Bend. For existing carousels, set Bend
 and click **Update Carousel**; reopening restores it. Older rigs default to 100% and
 gain the control on Update. Set 100% to restore the original shape. Updating also
-corrects the rotation expressions from the earlier local v1.6.3 Bend build.
+installs the anchor compensation and replaces earlier Bend rotation expressions.
+Anchor Point is now script-managed; preserve custom anchor expressions before Update.
 
-The slots retain their angular order, so a flat bow is not an evenly spaced row.
-Gap expands the base layout before bending; the visible distances between neighbors
-vary along a flattened or deepened bow. Large bends may need more composition space.
+Gap expands the base layout before bending. Spacing is uniform at a given Bend,
+but its amount changes with bow length; fixed endpoints cannot preserve the same
+spacing at every Bend. Large cards can still overlap uniformly: increase Gap or
+reduce Image size. Deep bows can extend beyond the endpoint line's width.
 
 ## Gap between images
 
@@ -189,8 +195,8 @@ You can also edit the controller's Effect Controls directly. Move its Position t
 
 - **Radius** is measured from the center to each image's center. Larger images or many images can overlap; increase radius or reduce image size.
 - **Image size** fits each image's longest edge without cropping or stretching. Transparent margins in the source count toward its size.
-- **Speed** is a constant number of degrees per second. `30` completes a revolution in `12` seconds. Uncheck Clockwise to reverse it; use `0` for a still arrangement.
-- For a seamless loop, set speed to `360 / duration` (or a whole multiple). The default new composition is 12 seconds at 30 fps. The endpoint matches the start; do not append a duplicate endpoint frame.
+- **Speed** is degrees per second for full circles and Bend 100; `30` completes a revolution in `12` seconds. Bent half-circles preserve that reference-radius travel speed around their new curvature center. Uncheck Clockwise to reverse it; use `0` for a still arrangement.
+- For a seamless Continuous orbit loop at Bend 100 or with a full circle, set speed to `360 / duration` (or a whole multiple). For a bent half-circle, divide that speed by `sin(2*atan(Bend/100))` as well; a flat row translates and does not make a closed orbit. The default new composition is 12 seconds at 30 fps. Do not append a duplicate endpoint frame.
 - For eased or custom rotation, set Speed to `0`, then keyframe the controller's ordinary Rotation property. Both image orientation modes still work. Animating the Speed control itself can cause jumps because it is multiplied by elapsed time.
 - **Start angle** places the first slot: `-90` top, `0` right, `90` bottom, `180` left. With shuffling off, images follow the list order clockwise. Duplicate selections within each image-source option are ignored.
 - Each Create click makes a separate carousel and asset folder. Renaming or reordering layers will not break the rig. Keep each image parented to its own controller and keep the effect control names unchanged. The number of slots is fixed when created; create again with a changed image list to change the count.
@@ -213,7 +219,23 @@ bow depth/fixed endpoints, tangent/flat/upright rotation, and both Unfolded Orbi
 It writes `tests/arc-last-run.txt` and `tests/arc-preview.png`, then removes its
 synthetic project items. Only a completed PASS with successful cleanup counts.
 
-**Bend/rotation verification — 2026-09-10:** the v1.6.4 Node checks pass with 12,944
+`tests/Bend Test.jsx` checks the rendered source centers and changing anchors on
+twelve synthetic cards, matching the crowded-end regression. It tests flat/tiny/
+shallow/normal/deep bends, uniform spacing during travel, keyed Bend through zero,
+and both Unfolded Orbit directions. It writes `tests/bend-last-run.txt` and ignored
+PNG previews, then removes its synthetic items without saving the open project.
+
+**v1.6.5 local validation — 2026-09-10:** `node tests/check.cjs` passes 15,980
+numerical assertions plus simulated host/GUI and five recovery checks. Tests inspect
+the rendered source centers after anchor/scale/rotation, including a rotating
+12-card bow at Bend 50, even neighbor spacing, the moving circle center, tiny/zero
+Bend continuity, source pixel aspect, both animation modes, centered focus/loops,
+and v1.6.4 upgrades. Native harness syntax passes. **Native execution and visual
+confirmation remain pending:** launch attempts produced no Bend report or preview.
+Run `tests/Bend Test.jsx` manually in a disposable project and inspect its report
+and previews. Existing native reports apply only to their earlier source versions.
+
+**Historical Bend/rotation verification — 2026-09-10:** the v1.6.4 Node checks passed with 12,944
 numerical assertions plus the simulated GUI/recovery checks. Coverage includes both
 arcs, creation and updates, saved setting recovery, single-image layouts, old rigs,
 and Unfolded Orbit focus/blur/scale/loop behavior in both directions with 1/2/3/8/12

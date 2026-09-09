@@ -8,6 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'Radial Carousel.jsx')
 new vm.Script(source);
 new vm.Script(fs.readFileSync(path.join(__dirname, 'Smoke Test.jsx'), 'utf8'));
 new vm.Script(fs.readFileSync(path.join(__dirname, 'Arc Test.jsx'), 'utf8'));
+new vm.Script(fs.readFileSync(path.join(__dirname, 'Bend Test.jsx'), 'utf8'));
 new vm.Script(fs.readFileSync(path.join(__dirname, 'Unfolded Orbit Test.jsx'), 'utf8'));
 let checks = 0;
 const near = (a, b) => { assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`); checks++; };
@@ -584,7 +585,7 @@ app.project.items.addComp = (...args) => {
 find('button', 'Create Radial Carousel').onClick();
 app.project.items.addComp = realAddComp;
 const diagnostic = alerts.pop();
-assert.match(diagnostic, /Radial Carousel 1\.6\.4/);
+assert.match(diagnostic, /Radial Carousel 1\.6\.5/);
 assert.match(diagnostic, /Action: Create Radial Carousel/);
 assert.match(diagnostic, /Step: Add carousel layer 1: Artwork precomp/);
 assert.match(diagnostic, /Line: 321/);
@@ -905,21 +906,58 @@ app.project.selection=[existing]; find('button','Use Project Selection').onClick
 find('button','Create Radial Carousel').onClick(); assert.equal(alerts.length,0);
 near(api.control(app.project.activeItem.list[0],'Gap').value,40);
 console.log('PASS: Gap measured spacing, unchanged image size, zero/single image, both arcs and modes/directions, focus/loop, old-rig upgrade, create/update/reopen, validation, and keyed controls.');
-// Bend changes only depth relative to the endpoint chord, including rotated layouts.
+// Render the source center through Anchor/Scale/Rotation/Position and its parent.
+// Checking Position alone misses anchor compensation and the visible end-card crowding.
+function rendered(rig, card, time = 1.2, slot, parentRotation) {
+    const effect = name => () => {
+        const p = api.control(rig,name);
+        return p.expression ? vm.runInNewContext(p.expression,{effect,time,inPoint:rig.inPoint}) : p.value;
+    };
+    const root = rig.property('ADBE Transform Group');
+    const pr = parentRotation === undefined ? vm.runInNewContext(root.property('ADBE Rotate Z').expression,
+        {effect,time,inPoint:rig.inPoint,value:0}) : parentRotation;
+    const env = {parent:{effect,transform:{rotation:pr}},thisLayer:{source:card.source},thisComp:rig.containingComp};
+    const sample = name => {
+        const p = card.property('ADBE Transform Group').property(name);
+        let expr = p.expression;
+        if (slot !== undefined) expr = expr.replace(/var slot = \d+, n =/,'var slot = '+slot+', n =');
+        return expr ? vm.runInNewContext(expr,env) : p.value;
+    };
+    const p = sample('ADBE Position'), scale = sample('ADBE Scale'), rotation = sample('ADBE Rotate Z');
+    env.transform = {position:p,scale,rotation};
+    const anchor = sample('ADBE Anchor Point');
+    const x = (card.source.width/2-anchor[0])*scale[0]/100*card.source.pixelAspect/rig.containingComp.pixelAspect;
+    const y = (card.source.height/2-anchor[1])*scale[1]/100, a = rotation*Math.PI/180;
+    const local = [p[0]+x*Math.cos(a)-y*Math.sin(a),p[1]+x*Math.sin(a)+y*Math.cos(a)];
+    const t = pr*Math.PI/180;
+    return {p:[local[0]*Math.cos(t)-local[1]*Math.sin(t),local[0]*Math.sin(t)+local[1]*Math.cos(t)],rotation:rotation+pr,anchor,scale};
+}
+// Circular bows preserve endpoints, equal spacing, and image dimensions.
 for (const halfCircle of [false,true]) for (const n of [1,2,5]) for (const angle of [-180,30]) {
     const inputs=Array.from({length:n},(_,i)=>({...files[i%files.length],name:'Bend '+i}));
     for (const orbit of [false,true]) {
         const settings={...orbitSettings,halfCircle,angle,orbit,gap:40,upright:false,offset:12};
         const rig=api.build(settings,inputs,null), cards=rig.containingComp.list.filter(l=>l.parent===rig).reverse();
-        const sample=(card,t=1.2)=>orbit?orbitSample(rig,card,'ADBE Position',t):arcSample(rig,card,'ADBE Position');
+        const sample=(card,t=1.2)=>rendered(rig,card,t,undefined,0).p;
         const baseline=cards.map(c=>sample(c)), axis=angle*Math.PI/180;
         const across=p=>p[0]*Math.cos(axis)+p[1]*Math.sin(axis);
         const depth=p=>-p[0]*Math.sin(axis)+p[1]*Math.cos(axis);
         for (const bend of [0,35,100,200]) {
             api.configure(rig,{...settings,bend});
             for (const [i,card] of cards.entries()) {
-                const p=sample(card), factor=halfCircle&&n>1?bend/100:1;
-                near(across(p),across(baseline[i])); near(depth(p),depth(baseline[i])*factor);
+                const p=sample(card);
+                if (halfCircle && n>1) {
+                    const r=settings.radius+settings.gap/(2*Math.sin(Math.PI/(2*(n-1))));
+                    if (bend===0) { near(across(p),r*(1-2*i/(n-1))); near(depth(p),0); }
+                    else {
+                        const b=bend/100, center=r*(b*b-1)/(2*b), radius=r*(1+b*b)/(2*b);
+                        near(Math.hypot(across(p),depth(p)-center),radius);
+                    }
+                    if (i>1) {
+                        const p1=sample(cards[i-1]),p2=sample(cards[i-2]);
+                        near(Math.hypot(p[0]-p1[0],p[1]-p1[1]),Math.hypot(p1[0]-p2[0],p1[1]-p2[1]));
+                    }
+                }
                 if (!halfCircle || n===1 || i===0 || i===n-1 || bend===100) {
                     near(p[0],baseline[i][0]); near(p[1],baseline[i][1]);
                 }
@@ -946,14 +984,9 @@ for (const halfCircle of [false,true]) for (const n of [1,2,5]) for (const angle
 // Compare orientation with a finite difference of the generated Position expression.
 // This checks the actual curve independently of the rotation formula.
 function checkTangent(rig,card,slot,settings,bend,time) {
-    const rotation=settings.orbit?orbitSample(rig,card,'ADBE Rotate Z',time):arcSample(rig,card,'ADBE Rotate Z');
+    const rotation=rendered(rig,card,time,undefined,0).rotation;
     const radians=(rotation-settings.offset)*Math.PI/180;
-    if (settings.halfCircle && rig.containingComp.list.filter(c=>c.parent===rig).length>1 && bend===0) {
-        near(Math.cos(radians),Math.cos((settings.angle+180)*Math.PI/180));
-        near(Math.sin(radians),Math.sin((settings.angle+180)*Math.PI/180));
-        return;
-    }
-    const point=s=>settings.orbit?orbitSample(rig,card,'ADBE Position',time,s):arcSample(rig,card,'ADBE Position',0,s);
+    const point=s=>rendered(rig,card,time,s,0).p;
     const before=point(slot-0.0001), after=point(slot+0.0001);
     const dx=after[0]-before[0],dy=after[1]-before[1],length=Math.hypot(dx,dy);
     near(Math.cos(radians),dx/length);near(Math.sin(radians),dy/length);
@@ -1044,7 +1077,80 @@ arcMenu().selection=arcMenu().items[1];arcMenu().onChange();inputFor('Bend (%)')
 find('checkbox','Add to the active composition').value=false;
 app.project.selection=[existing];find('button','Use Project Selection').onClick();find('button','Create Radial Carousel').onClick();
 assert.equal(alerts.length,0);near(api.control(app.project.activeItem.list[0],'Bend').value,60);
-console.log('PASS: Bend flat/shallow/semicircle/deep geometry, fixed endpoints, rotated layouts, radial/upright orientation, both modes, full-circle/single-image isolation, Gap, focus/loop, old rigs, create/update/reopen, and keyed/validated controls.');
+// Screenshot regression: a shallow, rotating 12-card bow must retain equal gaps and
+// a single curvature center, with a finite, continuous limit through Bend 0.
+for (const orbit of [false,true]) {
+    const settings={...orbitSettings,orbit,halfCircle:true,angle:-180,radius:3200,size:768,gap:0,speed:-1,upright:false};
+    const rig=api.build(settings,Array.from({length:12},(_,i)=>files[i%files.length]),null);
+    const cards=rig.containingComp.list.filter(c=>c.parent===rig).reverse();
+    for (const bend of [0,0.000001,0.1,25,50,99.999,100,100.001,200]) {
+        api.configure(rig,{...settings,bend});
+        for (const time of [0,1.2,1.8,3.5,8,15]) {
+            const points=cards.map(c=>rendered(rig,c,time));
+            const separation=Math.hypot(points[1].p[0]-points[0].p[0],points[1].p[1]-points[0].p[1]);
+            for (let i=0;i<cards.length;i++) {
+                assert.ok([...points[i].p,...points[i].anchor,points[i].rotation].every(Number.isFinite));
+                near(points[i].scale[0],points[i].scale[1]);
+                if (i>1) near(Math.hypot(points[i].p[0]-points[i-1].p[0],points[i].p[1]-points[i-1].p[1]),separation);
+            }
+            if (!orbit && bend>0.1) {
+                const b=bend/100,cy=3200*(1-b*b)/(2*b),radius=3200*(1+b*b)/(2*b);
+                for (const p of points) {
+                    near(Math.hypot(p.p[0],p.p[1]-cy),radius);
+                    const a=p.rotation*Math.PI/180;
+                    near((Math.cos(a)*p.p[0]+Math.sin(a)*(p.p[1]-cy))/radius,0);
+                }
+            }
+        }
+    }
+    // Sub-frame/small-Bend changes must not flip endpoint rotations or move centers suddenly.
+    for (const time of [0,1.2,3.5,15]) {
+        api.control(rig,'Bend').setValue(0);
+        const flat=cards.map(c=>rendered(rig,c,time));
+        api.control(rig,'Bend').setValue(0.000001);
+        cards.forEach((c,i)=>{
+            const p=rendered(rig,c,time);
+            assert.ok(Math.hypot(p.p[0]-flat[i].p[0],p.p[1]-flat[i].p[1])<0.001);
+            assert.ok(Math.abs(p.rotation-flat[i].rotation)<0.00001);
+        });
+    }
+    if (orbit) for (const reverse of [false,true]) {
+        api.configure(rig,{...settings,bend:50,orbitClockwise:reverse});
+        for (let i=0;i<cards.length;i++) {
+            const card=cards[reverse?(cards.length-i)%cards.length:i];
+            const p=rendered(rig,card,2.9+i*1.4).p;
+            near(p[0],0);near(p[1],0);
+        }
+        for (const c of cards) {
+            const first=rendered(rig,c,0),last=rendered(rig,c,api.orbitDuration(settings,cards.length));
+            near(first.p[0],last.p[0]);near(first.p[1],last.p[1]);near(first.rotation,last.rotation);
+        }
+    }
+    // A saved v1.6.4 rig acquires the anchor and new tangent on Update, once.
+    if (!orbit) {
+        const old='// RC bend rotation\nif (parent.effect("Half Circle")(1) > 0.5 && n > 1) {\n'+
+            '  var b = Math.max(0, Math.min(200, parent.effect("Bend")(1))) / 100;\n'+
+            '  var start = parent.effect("Start Angle")(1);\n'+
+            '  if (b === 0) { a = start + 90; }\n'+
+            '  else if (b !== 1) {\n'+
+            '    var theta = (a-start)*Math.PI/180;\n'+
+            '    var normal = Math.atan2(Math.sin(theta), b*Math.cos(theta));\n'+
+            '    a += Math.atan2(Math.sin(normal-theta), Math.cos(normal-theta))*180/Math.PI;\n'+
+            '  }\n}\n';
+        for (const c of cards) {
+            const tr=c.property('ADBE Transform Group');
+            tr.property('ADBE Anchor Point').expression='';
+            tr.property('ADBE Rotate Z').expression=tr.property('ADBE Rotate Z').expression.replace(/\/\/ RC bend rotation v2[\s\S]*?\n\}\n/,old);
+        }
+        api.configure(rig,{...settings,bend:50});api.configure(rig,{...settings,bend:50});
+        for (const c of cards) {
+            assert.equal(c.property('ADBE Transform Group').property('ADBE Rotate Z').expression.split('// RC bend rotation').length,2);
+            assert.match(c.property('ADBE Transform Group').property('ADBE Anchor Point').expression,/RC bend anchor/);
+            const p=rendered(rig,c,5); assert.ok(p.p.every(Number.isFinite));
+        }
+    }
+}
+console.log('PASS: circular bow and moving anchors, uniform end-to-end spacing, rigid travel about the bend center, tiny/zero Bend continuity, dimensions/PAR, both modes, centered focus/loops, and v1.6.4 upgrades.');
 console.log(`PASS: ${checks} numerical assertions, JSX syntax, input validation, import rollback, undo balancing, and keyframe update behavior.`);
 console.log('PASS: project source reuse, mixed sources, failure preservation, selection filtering/deduplication, actual panel callbacks, and destination fallback (stubbed AE/ScriptUI host).');
 console.log('PASS: rounded/square mask geometry, corner radius clamping/PAR, GUI load/apply, old-rig upgrades, and existing-mask preservation.');

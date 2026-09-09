@@ -10,6 +10,13 @@
     function assert(ok, message) { checks++; if (!ok) { throw new Error(message); } }
     function near(a, b) { assert(Math.abs(a-b) < 0.001, a + " != " + b); }
     function read(layer, name, time) {
+        if (name === "ADBE Position") {
+            var effects=layer.property("ADBE Effect Parade"), center=effects.property("RC Test center");
+            if (!center) { center=effects.addProperty("ADBE Point Control"); center.name="RC Test center";
+                center.property(1).expression="parent.fromComp(toComp([thisLayer.source.width/2,thisLayer.source.height/2]));"; }
+            var point=center.property(1), result=point.valueAtTime(time,false);
+            assert(!point.expressionError,point.expressionError); return result;
+        }
         var p = layer.property("ADBE Transform Group").property(name);
         var value = p.valueAtTime(time, false);
         assert(!p.expressionError, name + ": " + p.expressionError);
@@ -71,7 +78,7 @@
             near(middle[0], 0); near(middle[1], -bowRadius*bends[b]/100);
             near(read(cards[1], "ADBE Scale", 0)[0], 75);
             for (i = 0; i < cards.length; i++) {
-                near(read(cards[i], "ADBE Rotate Z", 0), bends[b] === 0 ? 0 : -90+i*90);
+                near(read(cards[i], "ADBE Rotate Z", 0), (i-1)*2*Math.atan(bends[b]/100)*180/Math.PI);
             }
         }
         api.bend.text = "25"; api.apply.onClick();
@@ -93,15 +100,20 @@
             }
             for (b = 0; b < bends.length; b++) {
                 api.control(ctrl, "Bend").setValue(bends[b]);
+                var positions=[read(cards[0],"ADBE Position",3.5),read(cards[1],"ADBE Position",3.5),read(cards[2],"ADBE Position",3.5)];
+                var x=positions[0],y=positions[1],z=positions[2],circumcenter;
+                if(bends[b]!==0) {
+                    var d=2*(x[0]*(y[1]-z[1])+y[0]*(z[1]-x[1])+z[0]*(x[1]-y[1]));
+                    var xx=x[0]*x[0]+x[1]*x[1],yy=y[0]*y[0]+y[1]*y[1],zz=z[0]*z[0]+z[1]*z[1];
+                    circumcenter=[(xx*(y[1]-z[1])+yy*(z[1]-x[1])+zz*(x[1]-y[1]))/d,
+                        (xx*(z[0]-y[0])+yy*(x[0]-z[0])+zz*(y[0]-x[0]))/d];
+                }
                 for (i = 0; i < cards.length; i++) {
                     var rotation = read(cards[i], "ADBE Rotate Z", 3.5)*Math.PI/180;
-                    if (bends[b] === 0) { near(Math.cos(rotation), 1); near(Math.sin(rotation), 0); }
-                    else {
-                        var before = read(cards[i], "ADBE Position", 3.4999), after = read(cards[i], "ADBE Position", 3.5001);
-                        var dx = after[0]-before[0], dy = after[1]-before[1], length = Math.sqrt(dx*dx+dy*dy);
-                        assert(length > 0.00001, "Moving card has a measurable tangent");
-                        near((Math.cos(rotation)*dy-Math.sin(rotation)*dx)/length, 0);
-                    }
+                    var dx,dy;
+                    if(bends[b]===0) { dx=-(z[1]-x[1]);dy=z[0]-x[0]; }
+                    else { dx=positions[i][0]-circumcenter[0];dy=positions[i][1]-circumcenter[1]; }
+                    near((Math.cos(rotation)*dx+Math.sin(rotation)*dy)/Math.sqrt(dx*dx+dy*dy),0);
                 }
             }
         }

@@ -1,4 +1,48 @@
-# Unfolded Orbit, Arc layouts, and Gap — implementation
+# Unfolded Orbit, Arc layouts, Gap, and Bend — implementation
+
+## Moving bend anchors — v1.6.5
+
+Last verified: 2026-09-10 — source: Gerald's endpoint-distortion screenshot and
+request, JSX and test diffs, and local Node checks. Gerald subsequently authorized
+committing and pushing this fix to the existing public repository.
+
+The old ellipse concentrated cards near its endpoints and kept a fixed rotation
+pivot. Replace the visible layout with a circular bow through the same endpoints
+and midpoint depth. Equal angular intervals on this circle give equal center gaps;
+the flat limit is a uniformly spaced row. Tangents are continuous through Bend 0.
+
+Anchor expressions compensate in source coordinates (including scale, rotation,
+and pixel aspect) so saved Position expressions remain recoverable. Continuous
+travel uses the moving circle center and retains reference-radius linear speed.
+Stable sinc identities evaluate the flat limit without an infinite AE anchor.
+Unfolded Orbit rotates the bow rigidly and adjusts the focus translation, keeping
+all image holds centered and preserving the original animation at Bend 100.
+Full circles and one-card layouts retain their behavior. Update replaces generated
+v1.6.3/1.6.4 rotation expressions and installs the managed Anchor Point expression;
+opening a rig remains read-only. No new controls or dependencies.
+
+Change JSX, README, this record, Node checks, native Arc test, native Bend test,
+and its report ignore rule. Verify rendered centers, uniform neighboring gaps,
+source dimensions, moving curvature center, zero continuity, existing-rig upgrades,
+both orientations, seeded slots, focus/loop behavior, and native expression/render
+results. No database, API, authentication, environment, credentials, or network
+changes. Rollback: Undo the Update operation or reopen the previously saved AE
+project with v1.6.4; Bend 100 restores the original geometry. Preserve custom
+anchor expressions before Update. New visuals require reopening the 1.6.5 panel
+and clicking Update; no installed/docked script copy is changed automatically.
+
+Validation: `node tests/check.cjs` passes 15,980 numerical assertions, simulated
+AE/ScriptUI checks, and five recovery cases. Native harness syntax passes, but
+launch attempts in the existing AE session produced no Bend report or previews.
+Native execution/visual confirmation is pending; run `tests/Bend Test.jsx` in a
+disposable project. No native pass is claimed, and older reports do not establish
+this version's behavior.
+
+Anchor-coordinate reference: [Adobe layer properties](https://helpx.adobe.com/lu_en/after-effects/desktop/work-with-layers/layer-properties/layer-properties.html),
+retrieved 2026-09-10. Positions alone are insufficient when anchors move; the tests
+inspect transformed source centers (native AE `toComp`) as well.
+
+## Earlier implementation
 
 Last verified: 2026-09-10 — source: Gerald's request, existing JSX/tests, and the
 public reference preview at https://108.supply/motion/unfolded-orbit. Gerald also
