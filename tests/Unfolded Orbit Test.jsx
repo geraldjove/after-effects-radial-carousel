@@ -29,7 +29,7 @@
         assert(code.indexOf(seam)>=0,"Find native test seam");
         code = code.replace(seam, '    $.global.__orbitTest = {win:win, tabs:tabs, mode:mode, build:build, configure:configure, control:control, settings:settings, selectedController:selectedController, carouselMenu:carouselMenu, addSources:function(s){files=s;refreshList();}, create:create, apply:apply, refresh:refreshCarousels, orbitInputs:orbitInputs, radius:radius, size:size, startAngle:startAngle, offset:offset, shuffle:shuffle, rounded:rounded, useActive:useActive, width:width, height:height, fps:fps, status:status};\n'+seam);
         code = code.replace("    function showError(error) {", "    function showError(error) { throw error;");
-        code = code.replace("mode:mode, build:build", "mode:mode, arc:arc, gap:gap, build:build");
+        code = code.replace("mode:mode, build:build", "mode:mode, arc:arc, gap:gap, upright:upright, radial:radial, build:build");
         eval(code);
         api = $.global.__orbitTest;
         assert(api.win.visible,"Native ScriptUI panel is visible");
@@ -37,6 +37,7 @@
         api.carouselMenu.selection = api.carouselMenu.items[0]; api.carouselMenu.onChange();
         api.useActive.value=false;
         api.mode.selection=api.mode.items[1]; api.mode.onChange();
+        api.upright.value=true; api.radial.value=false;
         api.arc.selection=api.arc.items[0]; api.gap.text="0";
         api.width.text="1080"; api.height.text="1440"; api.fps.text="30";
         api.radius.text="270"; api.size.text="250";

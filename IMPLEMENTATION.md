@@ -60,3 +60,51 @@ published v1.6.1 remains available as the previous script.
 Last verified: 2026-09-10 — `node tests/check.cjs` passes 9,775 numerical assertions
 plus simulated AE/ScriptUI/recovery checks on v1.6.2. Native harness syntax passes;
 native execution of the Arc/Gap checks remains pending.
+
+## Bend follow-up
+
+Add Layout → Bend (%) for Half circle: 0 is flat, 100 is the existing semicircle,
+and 200 doubles the bow depth. Keep the endpoint chord fixed in the Start angle
+direction without stretching images. The initial v1.6.3 rotation used the reshaped
+position; the follow-up below corrects it to the tangent. Upright images stay upright. Apply the
+same shape to Unfolded Orbit positions and its focus offset so every hold stays
+centered. Full circles and single images ignore Bend. Gap expands the base layout
+before bending, so physical spacing varies along the flattened/deepened curve.
+
+Modify the JSX, Node checks, focused native Arc test, README, and this record.
+Save an optional controller Bend slider (default 100); load old rigs read-only,
+then add the control and upgrade generated expressions on Update. Validate 0–200,
+preserve keyed controls, and leave unrelated/source layers intact. No dependencies,
+database, API, authentication, or environment changes. Verify endpoint/depth/rotation
+geometry, both modes, 100% compatibility, full-circle isolation, saved GUI settings,
+old-rig migration, and focus/loop behavior. Native results stay separately scoped.
+Rollback is Undo or Bend 100; published v1.6.2 remains the previous release.
+
+Last verified: 2026-09-10 — `node tests/check.cjs` passes 11,892 numerical assertions,
+simulated host/GUI checks, and the five recovery cases on v1.6.3. The updated native
+Arc/Gap/Bend harness passes syntax checks; native execution remains pending.
+
+## Rotation follows the bow
+
+Gerald clarified that the image/precomp rotations must adjust with Bend. Correct
+the v1.6.3 outward-position angle to the curve's tangent: the image's horizontal
+edge follows the path, including a consistent parallel row at Bend 0. At Bend 100,
+retain the original circular rotation. Reuse Keep Upright as the orientation choice;
+label its alternative Follow arc / bend and enable both choices in Unfolded Orbit.
+Follow mode includes Orbit's animated travel; upright mode continues cancelling the
+controller rotation. Image rotation offset still applies. Source precomp contents
+are unchanged; only each generated layer's rotation expression changes.
+
+Change JSX, Node tests, native Arc/Orbit harnesses, README, and this record. Update
+existing v1.6.3 rotation blocks on Apply without duplicating them; older generated
+rigs also upgrade. Verify tangent direction using sampled positions, flat/end cards,
+stills/precomps, both modes/directions, animated Bend, saved orientation, old-rig
+updates, and unchanged geometry/scale. No new controls, dependencies, credentials,
+database, API, or environment settings. Undo or Keep Upright reverses the orientation
+choice; native evidence remains scoped to the actual tested version.
+
+Last verified: 2026-09-10 — v1.6.4 passes `node tests/check.cjs`: 12,944 numerical
+assertions, simulated AE/ScriptUI checks, and five recovery cases. Native harnesses
+pass syntax checks; their execution remains pending. Exact ellipse endpoints retain
+perpendicular tangents above Bend 0 and switch to parallel at 0; README records this
+keyframing limit. The prior v1.6.0 native report does not verify this version.

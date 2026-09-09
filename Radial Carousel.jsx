@@ -1,10 +1,10 @@
-/* Radial Carousel 1.6.2 | 2026-09-10
+/* Radial Carousel 1.6.4 | 2026-09-10
    Run with File > Scripts > Run Script File, or install in ScriptUI Panels.
    No plug-ins, network access, or file-writing permission required.
 */
 (function (thisObj) {
     var TITLE = "Radial Carousel";
-    var VERSION = "1.6.2";
+    var VERSION = "1.6.4";
     var TAG = "RadialCarousel:1";
     var files = [];
     var boundController = null;
@@ -121,19 +121,19 @@
             var focusWeight = 'var delta = (a-parent.effect("Start Angle")(1))*Math.PI/180;\n' +
                 'var d = Math.acos(Math.max(-1,Math.min(1,Math.cos(delta))));\n' +
                 'var f = Math.min(1,d/(step*Math.PI/180*0.85)); f = f*f*(3-2*f);\n';
-            position.expression = angle + radiusExpression() +
+            position.expression = angle + radiusExpression() + bendExpression() +
                 'var p;\nif (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit +
                 'var focus = parent.effect("Start Angle")(1) * Math.PI/180, rad = a * Math.PI/180;\n' +
                 'p = [r*(o[0]*Math.cos(rad)-o[1]*Math.cos(focus)), r*(o[0]*Math.sin(rad)-o[1]*Math.sin(focus))];\n' +
-                '} else { var rad = a*Math.PI/180; p = [r*Math.cos(rad), r*Math.sin(rad)]; }\np;';
+                '} else { var rad = a*Math.PI/180; p = [r*Math.cos(rad), r*Math.sin(rad)]; }\nrcBend(p);';
             tr.property("ADBE Scale").expression = angle +
                 'var s = Math.max(1,parent.effect("Image Size")(1))/Math.max(thisLayer.source.width*thisLayer.source.pixelAspect/thisComp.pixelAspect,thisLayer.source.height)*100;\n' +
                 'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit + focusWeight +
                 's *= 1-o[1]*f*(1-Math.max(0.1,Math.min(1,parent.effect("Side Image Scale")(1)/100)));\n}\n[s,s];';
             tr.property("ADBE Rotate Z").expression = angle +
-                'var offset = parent.effect("Image Rotation Offset")(1);\nvar result;\n' +
-                'if (parent.effect("Unfolded Orbit")(1) > 0.5) { result = -parent.transform.rotation + offset; }\n' +
-                'else { result = parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation + offset : a + 90 + offset; }\nresult;';
+                'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit + '}\n' + bendRotationExpression() +
+                'var offset = parent.effect("Image Rotation Offset")(1);\n' +
+                'parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation + offset : a + 90 + offset;';
             tr.property("ADBE Opacity").expression = angle +
                 'var alpha = 1;\nif (parent.effect("Unfolded Orbit")(1) > 0.5 && slot !== 0) {\n' +
                 'alpha = Math.min(1, parent.effect("Orbit State")(1)[0] * 4);\n}\nvalue * alpha;';
@@ -284,6 +284,38 @@
             'if (n > 1) { r += Math.max(0, parent.effect("Gap")(1)) / (2 * Math.sin(step * Math.PI / 360)); }\n';
     }
 
+    function bendControl(layer, settings) {
+        var value = settings.bend;
+        if (value === undefined) { value = 100; }
+        if (!layer.property("ADBE Effect Parade").property("Bend")) {
+            addControl(layer, "ADBE Slider Control", "Bend", value);
+        } else { setControl(layer, "Bend", value); }
+    }
+
+    function bendExpression() {
+        return '// RC bend\nfunction rcBend(p) {\n' +
+            '  if (parent.effect("Half Circle")(1) > 0.5 && n > 1) {\n' +
+            '    var b = Math.max(0, Math.min(200, parent.effect("Bend")(1))) / 100;\n' +
+            '    if (b !== 1) {\n' +
+            '      var axis = (parent.effect("Start Angle")(1) + 90) * Math.PI / 180;\n' +
+            '      var x = Math.cos(axis), y = Math.sin(axis), d = (p[0]*x + p[1]*y) * (b-1);\n' +
+            '      p = [p[0] + d*x, p[1] + d*y];\n' +
+            '    }\n  }\n  return p;\n}\n';
+    }
+
+    function bendRotationExpression() {
+        // A bent circle's normal scales the other axis from its position.
+        return '// RC bend rotation\nif (parent.effect("Half Circle")(1) > 0.5 && n > 1) {\n' +
+            '  var b = Math.max(0, Math.min(200, parent.effect("Bend")(1))) / 100;\n' +
+            '  var start = parent.effect("Start Angle")(1);\n' +
+            '  if (b === 0) { a = start + 90; }\n' +
+            '  else if (b !== 1) {\n' +
+            '    var theta = (a-start)*Math.PI/180;\n' +
+            '    var normal = Math.atan2(Math.sin(theta), b*Math.cos(theta));\n' +
+            '    a += Math.atan2(Math.sin(normal-theta), Math.cos(normal-theta))*180/Math.PI;\n' +
+            '  }\n}\n';
+    }
+
     function angleExpression(slot, count) {
         // ponytail: O(N) shuffle per image; precompute slots if hundreds of images make previews slow.
         // Custom PRNG keeps the permutation identical across layers, unlike per-layer AE random seeds.
@@ -364,6 +396,7 @@
         arrangementControls(layer, settings);
         arcControls(layer, settings);
         gapControl(layer, settings);
+        bendControl(layer, settings);
         upgradeArrangement(layer);
         setControl(layer, "Radius", settings.radius);
         setControl(layer, "Image Size", settings.size);
@@ -385,6 +418,21 @@
                     var upgraded = position.expression.replace(
                         /^var r = (?:Math\.max\(0, parent\.effect\("Radius"\)\(1\)\)|parent\.effect\("Radius"\)\(1\));\s*/m, radiusExpression());
                     if (upgraded !== position.expression) { position.expression = upgraded; }
+                }
+                // Upgrade known generated tails while retaining the existing expression body.
+                if (position.expression.indexOf('// RC bend') < 0) {
+                    var bent = position.expression.replace(
+                        /(\[r\s*\*\s*Math\.cos\(rad\),\s*r\s*\*\s*Math\.sin\(rad\)\]);?\s*$/,
+                        bendExpression() + 'rcBend($1);');
+                    if (bent !== position.expression) { position.expression = bent; }
+                }
+                var rotation = child.property("ADBE Transform Group").property("ADBE Rotate Z");
+                if (rotation.expression.indexOf('// RC bend rotation') < 0) {
+                    // Replace the v1.6.3 position-based rotation, including on already-updated rigs.
+                    var oldRotation = rotation.expression.replace(
+                        /\/\/ RC bend\r?\nfunction rcBend\(p\) \{[\s\S]*?\r?\n\}\r?\nvar original =[\s\S]*?\r?\n\}\r?\n/, '');
+                    var rotated = oldRotation.replace(/^(var a = [^\r\n]+;\r?\n)/m, '$1' + bendRotationExpression());
+                    if (rotated !== rotation.expression) { rotation.expression = rotated; }
                 }
             }
         }
@@ -530,6 +578,7 @@
             arrangementControls(controller, settings);
             arcControls(controller, settings);
             gapControl(controller, settings);
+            bendControl(controller, settings);
             stage = "Set controller rotation";
             controller.property("ADBE Transform Group").property("ADBE Rotate Z").expression = 'value + (time - inPoint) * effect("Speed (deg/sec)")(1);';
 
@@ -554,11 +603,11 @@
                 // Slot is independent of timeline index, layer names, and other carousels.
                 var angle = angleExpression(i, footage.length);
                 tr.property("ADBE Position").expression = angle +
-                    radiusExpression() +
-                    'var rad = a * Math.PI / 180;\n[r * Math.cos(rad), r * Math.sin(rad)];';
+                    radiusExpression() + bendExpression() +
+                    'var rad = a * Math.PI / 180;\nrcBend([r * Math.cos(rad), r * Math.sin(rad)]);';
                 tr.property("ADBE Scale").expression =
                     'var s = Math.max(1, parent.effect("Image Size")(1)) / Math.max(thisLayer.source.width * thisLayer.source.pixelAspect / thisComp.pixelAspect, thisLayer.source.height) * 100;\n[s, s];';
-                tr.property("ADBE Rotate Z").expression = angle +
+                tr.property("ADBE Rotate Z").expression = angle + bendRotationExpression() +
                     'var offset = parent.effect("Image Rotation Offset")(1);\n' +
                     'parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation + offset : a + 90 + offset;';
                 stage = "Set rounded-corner mask: " + footage[i].name;
@@ -671,13 +720,18 @@
     arc.add("item", "Half circle (180 degrees)");
     arc.selection = arc.items[0];
     arc.helpTip = "Half circle includes both endpoints. Start angle chooses the first endpoint; Speed rotates the whole arrangement.";
+    var bend = field(layout, "Bend (%)", 100);
+    bend.helpTip = "Half circle: 0 = flat, 100 = semicircle, 200 = twice the bow depth. The two endpoints stay fixed.";
+    arc.onChange = function () { bend.enabled = arc.selection === arc.items[1]; };
+    arc.onChange();
     var startAngle = field(layout, "Start angle (degrees)", -90);
     startAngle.helpTip = "First slot: -90 = top, 0 = right, 90 = bottom, 180 = left. Shuffle changes which image occupies it.";
     var upright = layout.add("radiobutton", undefined, "Keep images upright while orbiting");
-    var radial = layout.add("radiobutton", undefined, "Radial - image tops point away from center");
+    var radial = layout.add("radiobutton", undefined, "Follow arc / bend");
+    radial.helpTip = "Rotate each image or precomp along the curve. Bend 0 makes a parallel row; works in both animation modes.";
     upright.value = true;
     var offset = field(layout, "Image rotation offset", 0);
-    offset.helpTip = "0 = normal. With Radial mode, 180 points image tops inward; 90 turns them sideways.";
+    offset.helpTip = "Adds rotation in either orientation. With Follow arc / bend, 180 reverses the image; 90 turns it sideways.";
     var rounded = layout.add("checkbox", undefined, "Rounded corners");
     var cornerRadius = field(layout, "Corner radius (px)", 24);
     cornerRadius.enabled = false;
@@ -753,7 +807,8 @@
     function updateMode() {
         var enabled = isOrbitMode();
         orbitPanel.enabled = enabled;
-        speed.enabled = upright.enabled = radial.enabled = !enabled;
+        speed.enabled = !enabled;
+        upright.enabled = radial.enabled = true;
         duration.enabled = !enabled;
         clockwise.helpTip = "Unfolded Orbit: unchecked presents images in the list's order; checked reverses the orbit.";
         updateOrbitSummary();
@@ -808,6 +863,9 @@
         if (effects.property("Gap")) { gap.text = String(control(layer, "Gap").value); }
         arc.selection = arc.items[0];
         if (effects.property("Half Circle") && control(layer, "Half Circle").value > 0.5) { arc.selection = arc.items[1]; }
+        bend.text = "100";
+        if (effects.property("Bend")) { bend.text = String(control(layer, "Bend").value); }
+        arc.onChange();
         rounded.value = effects.property("Rounded Corners") ? control(layer, "Rounded Corners").value > 0.5 : false;
         cornerRadius.text = effects.property("Corner Radius") ? String(control(layer, "Corner Radius").value) : "24";
         cornerRadius.enabled = rounded.value;
@@ -950,6 +1008,9 @@
             orbit: isOrbitMode(),
             orbitClockwise: clockwise.value
         };
+        result.bend = Number(bend.text);
+        if (result.halfCircle) { result.bend = number(bend.text, "Bend", 0, 200, false); }
+        else if (!/\S/.test(bend.text) || !isFinite(result.bend) || result.bend < 0 || result.bend > 200) { result.bend = 100; }
         for (var i = 0; i < orbitFields.length; i++) {
             var spec = orbitFields[i];
             result[spec[2]] = spec[3];

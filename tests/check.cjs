@@ -584,7 +584,7 @@ app.project.items.addComp = (...args) => {
 find('button', 'Create Radial Carousel').onClick();
 app.project.items.addComp = realAddComp;
 const diagnostic = alerts.pop();
-assert.match(diagnostic, /Radial Carousel 1\.6\.2/);
+assert.match(diagnostic, /Radial Carousel 1\.6\.4/);
 assert.match(diagnostic, /Action: Create Radial Carousel/);
 assert.match(diagnostic, /Step: Add carousel layer 1: Artwork precomp/);
 assert.match(diagnostic, /Line: 321/);
@@ -608,7 +608,7 @@ assert.match(recoveryResult, /^PASS: 5 recovery checks/);
 // Unfolded Orbit: evaluate the shipped expressions with their actual dependencies.
 const orbitSettings = {...s, orbit: true, orbitClockwise: false, unfold: 0.8, zoomTime: 1.15,
     hold: 0.8, transition: 0.6, zoom: 280, blur: 18, sideScale: 50, duration: 17};
-function orbitSample(rig, layer, name, time) {
+function orbitSample(rig, layer, name, time, slot) {
     const effect = n => () => {
         const p = api.control(rig, n);
         if (!p.expression) return p.value;
@@ -621,7 +621,8 @@ function orbitSample(rig, layer, name, time) {
     const layerScale = vm.runInNewContext(layer.property('ADBE Transform Group').property('ADBE Scale').expression,
         {parent: {effect}, thisLayer:{source:layer.source}, thisComp:rig.containingComp});
     const p = name === 'blur' ? layer.property('ADBE Effect Parade').property('RC Focus Blur').property(1) : layer.property('ADBE Transform Group').property(name);
-    return vm.runInNewContext(p.expression, {parent: {effect, transform: {rotation, scale}}, thisLayer: {source: layer.source, transform: {scale: layerScale}},
+    const expression = slot === undefined ? p.expression : p.expression.replace(/var slot = \d+, n =/, 'var slot = '+slot+', n =');
+    return vm.runInNewContext(expression, {parent: {effect, transform: {rotation, scale}}, thisLayer: {source: layer.source, transform: {scale: layerScale}},
         thisComp: rig.containingComp, value: 100});
 }
 for (const halfCircle of [false, true]) {
@@ -719,8 +720,10 @@ find('button','Update Carousel').onClick();
 assert.match(alerts.pop(),/from the controller's in point/);
 console.log('PASS: Unfolded Orbit with 180/360 arcs, loop boundaries, all-card focus order, both directions, 1/2/3/8/12 cards, blur, opacity, mode switching, recovery, updates, and timing validation.');
 // Half-circle geometry uses both endpoints; full circles never duplicate the first slot.
-function arcSample(rig, layer, property, rotation = 0) {
-    return vm.runInNewContext(layer.property('ADBE Transform Group').property(property).expression, {
+function arcSample(rig, layer, property, rotation = 0, slot) {
+    let expression = layer.property('ADBE Transform Group').property(property).expression;
+    if (slot !== undefined) expression = expression.replace(/var slot = \d+, n =/, 'var slot = '+slot+', n =');
+    return vm.runInNewContext(expression, {
         parent: {effect: name => () => api.control(rig, name).value, transform: {rotation}}
     });
 }
@@ -902,6 +905,146 @@ app.project.selection=[existing]; find('button','Use Project Selection').onClick
 find('button','Create Radial Carousel').onClick(); assert.equal(alerts.length,0);
 near(api.control(app.project.activeItem.list[0],'Gap').value,40);
 console.log('PASS: Gap measured spacing, unchanged image size, zero/single image, both arcs and modes/directions, focus/loop, old-rig upgrade, create/update/reopen, validation, and keyed controls.');
+// Bend changes only depth relative to the endpoint chord, including rotated layouts.
+for (const halfCircle of [false,true]) for (const n of [1,2,5]) for (const angle of [-180,30]) {
+    const inputs=Array.from({length:n},(_,i)=>({...files[i%files.length],name:'Bend '+i}));
+    for (const orbit of [false,true]) {
+        const settings={...orbitSettings,halfCircle,angle,orbit,gap:40,upright:false,offset:12};
+        const rig=api.build(settings,inputs,null), cards=rig.containingComp.list.filter(l=>l.parent===rig).reverse();
+        const sample=(card,t=1.2)=>orbit?orbitSample(rig,card,'ADBE Position',t):arcSample(rig,card,'ADBE Position');
+        const baseline=cards.map(c=>sample(c)), axis=angle*Math.PI/180;
+        const across=p=>p[0]*Math.cos(axis)+p[1]*Math.sin(axis);
+        const depth=p=>-p[0]*Math.sin(axis)+p[1]*Math.cos(axis);
+        for (const bend of [0,35,100,200]) {
+            api.configure(rig,{...settings,bend});
+            for (const [i,card] of cards.entries()) {
+                const p=sample(card), factor=halfCircle&&n>1?bend/100:1;
+                near(across(p),across(baseline[i])); near(depth(p),depth(baseline[i])*factor);
+                if (!halfCircle || n===1 || i===0 || i===n-1 || bend===100) {
+                    near(p[0],baseline[i][0]); near(p[1],baseline[i][1]);
+                }
+                if (orbit) {
+                    const size=orbitSample(rig,card,'ADBE Scale',1.2)[0];
+                    near(size*Math.max(card.source.width*card.source.pixelAspect,card.source.height)/100,settings.size);
+                }
+                checkTangent(rig,card,i,settings,bend,1.2);
+            }
+            if (orbit && halfCircle) for (const reverse of [false,true]) {
+                api.control(rig,'Orbit Clockwise').setValue(reverse?1:0);
+                for(let i=0;i<n;i++){
+                    const card=cards[reverse?(n-i)%n:i], t=2.9+i*1.4, focus=sample(card,t);
+                    near(focus[0],0);near(focus[1],0);near(orbitSample(rig,card,'blur',t),0);
+                    const start=sample(card,0),end=sample(card,api.orbitDuration(settings,n));
+                    near(start[0],end[0]);near(start[1],end[1]);
+                }
+            }
+            api.configure(rig,{...settings,bend,upright:true});
+            for(const card of cards) near(orbit?orbitSample(rig,card,'ADBE Rotate Z',3.6):arcSample(rig,card,'ADBE Rotate Z',23),orbit?settings.offset:-23+settings.offset);
+        }
+    }
+}
+// Compare orientation with a finite difference of the generated Position expression.
+// This checks the actual curve independently of the rotation formula.
+function checkTangent(rig,card,slot,settings,bend,time) {
+    const rotation=settings.orbit?orbitSample(rig,card,'ADBE Rotate Z',time):arcSample(rig,card,'ADBE Rotate Z');
+    const radians=(rotation-settings.offset)*Math.PI/180;
+    if (settings.halfCircle && rig.containingComp.list.filter(c=>c.parent===rig).length>1 && bend===0) {
+        near(Math.cos(radians),Math.cos((settings.angle+180)*Math.PI/180));
+        near(Math.sin(radians),Math.sin((settings.angle+180)*Math.PI/180));
+        return;
+    }
+    const point=s=>settings.orbit?orbitSample(rig,card,'ADBE Position',time,s):arcSample(rig,card,'ADBE Position',0,s);
+    const before=point(slot-0.0001), after=point(slot+0.0001);
+    const dx=after[0]-before[0],dy=after[1]-before[1],length=Math.hypot(dx,dy);
+    near(Math.cos(radians),dx/length);near(Math.sin(radians),dy/length);
+}
+// Still images and precomp layers follow the bend during animated travel in either direction.
+for (const halfCircle of [false,true]) for (const reverse of [false,true]) {
+    const settings={...orbitSettings,halfCircle,orbitClockwise:reverse,upright:false,angle:-135,offset:17};
+    const rig=api.build(settings,[{item:existing},{item:artwork},...files],null);
+    const cards=rig.containingComp.list.filter(c=>c.parent===rig).reverse();
+    assert.equal(cards[0].source,existing);assert.equal(cards[1].source,artwork);
+    for (const bend of [0,25,100,200]) {
+        api.configure(rig,{...settings,bend});
+        for (const time of [1.8,2.1,3.6,5]) for (const [i,card] of cards.entries()) checkTangent(rig,card,i,settings,bend,time);
+    }
+}
+// Migrate pre-Bend generated expressions without rewriting source order or creating on load.
+for (const legacy of [false,true]) {
+    const rig=api.build({...s,halfCircle:true,upright:false,angle:-180},files,null);
+    const cards=rig.containingComp.list.filter(l=>l.parent===rig).reverse(), effects=rig.property('ADBE Effect Parade');
+    effects.effects=effects.effects.filter(e=>e.name!=='Bend');
+    for(const [i,card] of cards.entries()){
+        const tr=card.property('ADBE Transform Group');
+        const header=legacy?'var a = parent.effect("Start Angle")(1) + '+i*120+';\n':tr.property('ADBE Position').expression.split('var r =')[0];
+        tr.property('ADBE Position').expression=header+'var r = parent.effect("Radius")(1); var rad = a*Math.PI/180; [r * Math.cos(rad), r * Math.sin(rad)];';
+        tr.property('ADBE Rotate Z').expression=header+'parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation : a + 90;';
+    }
+    app.project.activeItem=rig.containingComp;
+    const original=cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression), count=effects.effects.length;
+    vm.runInContext(source,uiContext);
+    assert.equal(inputFor('Bend (%)').text,'100');assert.equal(inputFor('Bend (%)').enabled,true);
+    assert.equal(effects.effects.length,count);assert.deepEqual(cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression),original);
+    inputFor('Bend (%)').text='25';find('button','Update Carousel').onClick();
+    find('button','Update Carousel').onClick();assert.equal(alerts.length,0);assert.equal(effects.effects.length,count+1);
+    const middle=arcSample(rig,cards[1],'ADBE Position');near(middle[0],0);near(middle[1],-60);
+    const upgraded=cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression);
+    vm.runInContext(source,uiContext);assert.equal(inputFor('Bend (%)').text,'25');
+    assert.deepEqual(cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression),upgraded);
+    for(const value of ['-1','201','NaN','Infinity','']){
+        inputFor('Bend (%)').text=value;find('button','Update Carousel').onClick();
+        assert.match(alerts.pop(),/Bend/);near(api.control(rig,'Bend').value,25);assert.equal(app.undoDepth,0);
+    }
+    arcMenu().selection=arcMenu().items[0];arcMenu().onChange();assert.equal(inputFor('Bend (%)').enabled,false);
+    find('button','Update Carousel').onClick();assert.equal(alerts.length,0);near(api.control(rig,'Bend').value,100);
+    arcMenu().selection=arcMenu().items[1];arcMenu().onChange();assert.equal(inputFor('Bend (%)').enabled,true);
+    const prop=api.control(rig,'Bend');prop.numKeys=2;rig.containingComp.time=5;
+    inputFor('Bend (%)').text='40';find('button','Update Carousel').onClick();
+    assert.deepEqual(Array.from(prop.lastKey),[5,40]);assert.equal(prop.numKeys,2);assert.equal(rig.containingComp.numLayers,4);
+}
+// Update the previous local Bend rotation block and persist either orientation in both modes.
+for (const orbit of [false,true]) {
+    const rig=api.build({...orbitSettings,orbit,halfCircle:true,bend:25,upright:false},[{item:existing},{item:artwork},...files],null);
+    const cards=rig.containingComp.list.filter(c=>c.parent===rig).reverse();
+    const positions=cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression);
+    for (const card of cards) {
+        const tr=card.property('ADBE Transform Group');
+        const oldBend=tr.property('ADBE Position').expression.match(/\/\/ RC bend\nfunction rcBend\(p\) \{[\s\S]*?\n\}\n/)[0] +
+            'var original = a * Math.PI / 180, direction = rcBend([Math.cos(original), Math.sin(original)]);\n' +
+            'if (direction[0]*direction[0] + direction[1]*direction[1] > 0.000000000001) {\n' +
+            '  a += Math.atan2(direction[1]*Math.cos(original)-direction[0]*Math.sin(original),\n' +
+            '    direction[0]*Math.cos(original)+direction[1]*Math.sin(original)) * 180 / Math.PI;\n}\n';
+        tr.property('ADBE Rotate Z').expression=orbit?'var offset = parent.effect("Image Rotation Offset")(1);\n-parent.transform.rotation + offset;':
+            tr.property('ADBE Rotate Z').expression.replace(/\/\/ RC bend rotation[\s\S]*?\n\}\n/,oldBend);
+    }
+    app.project.activeItem=rig.containingComp;vm.runInContext(source,uiContext);
+    assert.equal(find('radiobutton','Follow arc / bend').value,true);
+    assert.equal(find('radiobutton','Follow arc / bend').enabled,true);
+    assert.equal(find('radiobutton','Keep images upright while orbiting').enabled,true);
+    find('button','Update Carousel').onClick();find('button','Update Carousel').onClick();
+    assert.equal(alerts.length,0);
+    assert.deepEqual(cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression),positions);
+    assert.equal(cards[0].source,existing);assert.equal(cards[1].source,artwork);
+    for (const [i,card] of cards.entries()) {
+        const expression=card.property('ADBE Transform Group').property('ADBE Rotate Z').expression;
+        assert.equal(expression.split('// RC bend rotation').length,2);assert.doesNotMatch(expression,/var original/);
+        checkTangent(rig,card,i,{...orbitSettings,orbit,halfCircle:true},25,3.6);
+    }
+    find('radiobutton','Keep images upright while orbiting').value=true;
+    find('radiobutton','Follow arc / bend').value=false;find('button','Update Carousel').onClick();
+    near(api.control(rig,'Keep Upright').value,1);
+    vm.runInContext(source,uiContext);assert.equal(find('radiobutton','Keep images upright while orbiting').value,true);
+    find('radiobutton','Follow arc / bend').value=true;
+    find('radiobutton','Keep images upright while orbiting').value=false;find('button','Update Carousel').onClick();
+    near(api.control(rig,'Keep Upright').value,0);
+    vm.runInContext(source,uiContext);assert.equal(find('radiobutton','Follow arc / bend').value,true);
+}
+find('dropdownlist').selection=find('dropdownlist').items[0];find('dropdownlist').onChange();
+arcMenu().selection=arcMenu().items[1];arcMenu().onChange();inputFor('Bend (%)').text='60';
+find('checkbox','Add to the active composition').value=false;
+app.project.selection=[existing];find('button','Use Project Selection').onClick();find('button','Create Radial Carousel').onClick();
+assert.equal(alerts.length,0);near(api.control(app.project.activeItem.list[0],'Bend').value,60);
+console.log('PASS: Bend flat/shallow/semicircle/deep geometry, fixed endpoints, rotated layouts, radial/upright orientation, both modes, full-circle/single-image isolation, Gap, focus/loop, old rigs, create/update/reopen, and keyed/validated controls.');
 console.log(`PASS: ${checks} numerical assertions, JSX syntax, input validation, import rollback, undo balancing, and keyframe update behavior.`);
 console.log('PASS: project source reuse, mixed sources, failure preservation, selection filtering/deduplication, actual panel callbacks, and destination fallback (stubbed AE/ScriptUI host).');
 console.log('PASS: rounded/square mask geometry, corner radius clamping/PAR, GUI load/apply, old-rig upgrades, and existing-mask preservation.');

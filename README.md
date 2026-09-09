@@ -1,13 +1,16 @@
 # Radial Carousel
 
-**Version 1.6.2.** An After Effects ScriptUI panel for
+**Version 1.6.4.** An After Effects ScriptUI panel for
 creating and editing 2D carousels from still images and precomps. Includes the new
 **Unfolded Orbit** sequence, continuous upright/radial orbits, rounded corners,
 seeded arrangements, recovery of existing carousels, a **180° half-circle** layout,
-and adjustable **Gap** between images.
+adjustable **Gap** between images, and **Bend** for a flatter or deeper half-circle bow.
 
-This version combines Unfolded Orbit with **Layout → Arc** and **Gap (px)**. Close and
+This version combines Unfolded Orbit with **Layout → Arc**, **Gap (px)**, and **Bend (%)**. Close and
 reopen the updated script to load the new controls; replace any installed copy too.
+
+Version 1.6.4 adds Bend and Follow arc / bend. For a fixed version, use the
+[v1.6.4 script](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/tags/v1.6.4/Radial%20Carousel.jsx).
 
 [Download Radial Carousel.jsx](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/heads/main/Radial%20Carousel.jsx), or use **Code > Download ZIP** for the script, documentation, and tests.
 
@@ -26,7 +29,7 @@ To create another carousel:
 
 1. Choose **Create new carousel** in the dropdown. In AE's **Project panel**, select your imported still images or their compositions, then click **Use Project Selection** in the **Images** tab. Each selected precomp becomes one carousel item and appears with a **[Comp]** label. To import images from disk instead, click **Add Files...**. You can mix images and precomps, add another batch, remove selected entries, or clear the list.
 2. Choose **Continuous orbit** or **Unfolded Orbit** in the **Animation** dropdown.
-3. In **Layout**, choose **Arc → Full circle (360 degrees)** or **Half circle (180 degrees)**, then set radius, gap, image size, direction, rounded corners, and optional shuffle. Continuous orbit also exposes speed and orientation. Unfolded Orbit keeps images upright.
+3. In **Layout**, choose **Arc → Full circle (360 degrees)** or **Half circle (180 degrees)**, then set radius, gap, image size, direction, rounded corners, and optional shuffle. For Half circle, **Bend (%)** adjusts the bow. Choose **Follow arc / bend** to rotate the images with the curve, or **Keep images upright** to keep them level. Both orientations work in both animation modes; Continuous orbit also exposes speed.
 4. For Unfolded Orbit, use **Timing / Focus** to set timing, zoom, blur, and side-image size. Eight images with the default timing give a 17-second loop.
 5. In **Composition**, choose the active composition or enter settings for a new one. New Unfolded Orbit compositions automatically fit the loop duration. The first selection of this mode suggests a 1080 × 1440 canvas when creating a new composition.
 6. Click **Create Radial Carousel**, then preview the timeline. The new carousel is loaded into update mode automatically.
@@ -49,6 +52,39 @@ transition between the two endpoints crosses the empty half of the circle. Hold
 and transition durations remain the same, so that larger gap moves faster than
 the smaller gaps. Focus blur and side-image scaling follow the chosen spacing.
 
+## Bend the half circle
+
+Choose **Half circle (180 degrees)**, then adjust **Layout → Bend (%)**:
+
+| Bend | Shape |
+| --- | --- |
+| 0% | Flat line between the two endpoints. |
+| 25–75% | A shallower bow. |
+| 100% | The original semicircle. |
+| 150–200% | A deeper bow. |
+
+Bend changes the depth perpendicular to the line between the endpoints; the endpoints
+stay fixed. **Start angle** turns that line and its bow together. Images keep their
+size and proportions. **Follow arc / bend** rotates each image or precomp so its
+horizontal edge follows the curve's tangent. At Bend 0, every card is parallel to
+the endpoint line, including the center and end cards. **Keep images upright**
+stays level. Image rotation offset applies to either choice. Only the carousel
+layer rotates; source precomp contents are unchanged.
+
+With a nonzero Bend, the exact endpoints retain perpendicular tangents; at exactly
+0 they switch to the parallel row. Avoid crossing 0 when keyframing if that end-card
+rotation change is unwanted.
+
+It works in both animation modes and can be keyframed with the controller's **Bend**
+slider. Full circles and single images ignore Bend. For existing carousels, set Bend
+and click **Update Carousel**; reopening restores it. Older rigs default to 100% and
+gain the control on Update. Set 100% to restore the original shape. Updating also
+corrects the rotation expressions from the earlier local v1.6.3 Bend build.
+
+The slots retain their angular order, so a flat bow is not an evenly spaced row.
+Gap expands the base layout before bending; the visible distances between neighbors
+vary along a flattened or deepened bow. Large bends may need more composition space.
+
 ## Gap between images
 
 Increase **Layout → Gap (px)** to spread images farther apart without resizing them.
@@ -57,7 +93,7 @@ It expands the carousel from the base **Radius** and keeps the chosen 180°/360�
 carousel, set Gap and click **Update Carousel**. Reopening restores the value.
 
 Gap adds the chosen number of pixels to the distance between neighboring image
-centers at normal controller scale. For example, `40` adds 40 pixels of spacing to
+centers at normal controller scale and Bend 100%. For example, `40` adds 40 pixels of spacing to
 each neighboring pair. Existing image overlap may require a larger value. Different
 image shapes and rotations can have different visible edge clearances; this control
 does not calculate an exact edge-to-edge margin. Scaling the controller scales the
@@ -137,9 +173,9 @@ For an existing destination composition, open its timeline before launching the 
 | Orientation | Result |
 | --- | --- |
 | Keep images upright | Images travel around the circle while staying level. |
-| Radial | Each image's top points away from the center and turns with the carousel. |
+| Follow arc / bend | Each image's horizontal edge follows the curve and turns with the carousel, including animated Unfolded Orbit travel. Bend 0 gives a parallel row. |
 
-**Image rotation offset** adjusts the artwork's direction in either mode. In radial mode, `180` makes image tops point inward; `90` turns them sideways.
+**Image rotation offset** adjusts the artwork's direction in either mode. With Follow arc / bend, `180` reverses the image; `90` turns it sideways.
 
 **Rounded corners** cuts the image's four corners with an editable mask. A radius of `24` means 24 pixels at the selected image size; larger values make the corners rounder, up to half the image's shorter edge. `0`, or unchecking the option, restores square corners. It works with both orientation modes, still images, and precomps. The source and existing transparency stay intact. The mask follows the image or precomp bounds, including any transparent margins, so artwork already inset from those bounds may look unchanged. Scaling the entire controller also scales the finished corners.
 
@@ -171,18 +207,20 @@ and a full 17-second H.264 movie. Both native tests run through **File > Scripts
 Run Script File** and need script file-writing permission for reports/exports.
 The panel itself does not need that preference.
 
-`tests/Arc Test.jsx` is the focused native check for the integrated Arc and Gap controls:
+`tests/Arc Test.jsx` is the focused native check for Arc, Gap, and Bend:
 GUI creation/reopening/updating, added spacing, unchanged image size, radial geometry,
-and both Unfolded Orbit directions.
+bow depth/fixed endpoints, tangent/flat/upright rotation, and both Unfolded Orbit directions.
 It writes `tests/arc-last-run.txt` and `tests/arc-preview.png`, then removes its
 synthetic project items. Only a completed PASS with successful cleanup counts.
 
-**Arc and Gap verification — 2026-09-10:** the v1.6.2 Node checks pass with 9,775
+**Bend/rotation verification — 2026-09-10:** the v1.6.4 Node checks pass with 12,944
 numerical assertions plus the simulated GUI/recovery checks. Coverage includes both
 arcs, creation and updates, saved setting recovery, single-image layouts, old rigs,
 and Unfolded Orbit focus/blur/scale/loop behavior in both directions with 1/2/3/8/12
 images, measured gap changes, Gap 0 restoration, old gap-expression upgrades, saved
-and keyed gap controls, and invalid input. The focused native Arc test has no
+and keyed controls, flat/shallow/deep bow geometry, rotated layouts, tangent rotation
+checked against sampled positions, animated still/precomp travel, saved orientation,
+v1.6.3 rotation upgrades, full-circle isolation, and invalid input. The focused native Arc test has no
 completed report yet; the earlier native
 v1.6.0 Orbit result does not verify these newer edits.
 
@@ -226,7 +264,7 @@ stopped at an overwrite prompt, which led to the fresh-filename test fix.
 These checks cover this Windows build and synthetic source precomps. They do not
 establish compatibility with older AE versions, macOS, every imported file format,
 or an exact visual match to the reference. They do not verify the v1.6.1 Arc
-integration or v1.6.2 Gap addition.
+integration, v1.6.2 Gap addition, v1.6.3 Bend addition, or v1.6.4 rotation correction.
 
 The extended continuous-orbit native smoke check is **incomplete**: after fixing
 its report header to convert `Date` explicitly to a string, it exported the three
