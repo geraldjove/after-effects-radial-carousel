@@ -1,15 +1,152 @@
-/* Radial Carousel 1.5.2 | 2026-09-10
+/* Radial Carousel 1.6.1 | 2026-09-10
    Run with File > Scripts > Run Script File, or install in ScriptUI Panels.
    No plug-ins, network access, or file-writing permission required.
 */
 (function (thisObj) {
     var TITLE = "Radial Carousel";
-    var VERSION = "1.5.2";
+    var VERSION = "1.6.1";
     var TAG = "RadialCarousel:1";
     var files = [];
     var boundController = null;
     var refreshingCarousels = false;
     var operation = "Open panel";
+    var orbitDefaultsApplied = false;
+    var orbitFields = [
+        ["Unfold time (s)", "Unfold Time", "unfold", 0.8, 0.05, 30],
+        ["Zoom time (s)", "Zoom Time", "zoomTime", 1.15, 0.05, 30],
+        ["Hold per image (s)", "Image Hold", "hold", 0.8, 0, 60],
+        ["Transition time (s)", "Image Transition", "transition", 0.6, 0.05, 30],
+        ["Focus zoom (%)", "Focus Zoom", "zoom", 280, 100, 1000],
+        ["Focus blur (px)", "Focus Blur", "blur", 18, 0, 200],
+        ["Side image scale (%)", "Side Image Scale", "sideScale", 50, 10, 100]
+    ];
+
+    // Pure timing function, also embedded verbatim in AE's controller expression.
+    function orbitState(t, n, unfold, zoomTime, hold, transition) {
+        function smooth(x) { x = Math.max(0, Math.min(1, x)); return x * x * x * (x * (x * 6 - 15) + 10); }
+        var length = 1.1 + 2 * unfold + 2 * zoomTime + (n + 1) * hold + n * transition;
+        t = ((t % length) + length) % length;
+        if (t < 0.3) { return [0, 0, 0]; }
+        t -= 0.3;
+        if (t < unfold) { return [smooth(t / unfold), 0, 0]; }
+        t -= unfold;
+        if (t < 0.25) { return [1, 0, 0]; }
+        t -= 0.25;
+        if (t < zoomTime) { var z = smooth(t / zoomTime); return [1, z, z]; }
+        t -= zoomTime;
+        if (t < n * (hold + transition)) {
+            var step = Math.floor(t / (hold + transition));
+            var progress = smooth((t - step * (hold + transition) - hold) / transition);
+            return [1, 1, 1 + (step + progress) / n];
+        }
+        t -= n * (hold + transition);
+        if (t < hold) { return [1, 1, 2]; }
+        t -= hold;
+        if (t < zoomTime) { var out = smooth(t / zoomTime); return [1, 1 - out, 2 + out]; }
+        t -= zoomTime;
+        if (t < 0.25) { return [1, 0, 3]; }
+        t -= 0.25;
+        if (t < unfold) { return [1 - smooth(t / unfold), 0, 3]; }
+        return [0, 0, 3];
+    }
+
+    function orbitDuration(settings, count) {
+        return 1.1 + 2 * settings.unfold + 2 * settings.zoomTime +
+            (count + 1) * settings.hold + count * settings.transition;
+    }
+
+    function orbitControls(controller, settings) {
+        var effects = controller.property("ADBE Effect Parade");
+        var names = ["Unfolded Orbit", "Orbit Clockwise"];
+        var values = [settings.orbit ? 1 : 0, settings.orbitClockwise ? 1 : 0];
+        for (var i = 0; i < names.length; i++) {
+            if (!effects.property(names[i])) { addControl(controller, "ADBE Checkbox Control", names[i], values[i]); }
+            else { setControl(controller, names[i], values[i]); }
+        }
+        for (i = 0; i < orbitFields.length; i++) {
+            var spec = orbitFields[i];
+            var v = settings[spec[2]];
+            if (v === undefined) { v = spec[3]; }
+            if (!effects.property(spec[1])) { addControl(controller, "ADBE Slider Control", spec[1], v); }
+            else { setControl(controller, spec[1], v); }
+        }
+    }
+
+    function holdShortPrecomp(layer, end) {
+        if (layer.source instanceof CompItem && layer.source.duration < end - layer.startTime && !layer.timeRemapEnabled) {
+            layer.timeRemapEnabled = true;
+            layer.property("ADBE Time Remapping").expression =
+                'Math.min(Math.max(time - startTime, 0), Math.max(0, thisLayer.source.duration - thisLayer.source.frameDuration));';
+        }
+    }
+
+    function installOrbit(controller) {
+        var comp = controller.containingComp, children = [], i;
+        for (i = 1; i <= comp.numLayers; i++) {
+            var child = comp.layer(i);
+            if (child.parent === controller && isCarouselSource(child.source)) { children.push(child); }
+        }
+        var effects = controller.property("ADBE Effect Parade");
+        if (!children.length) { throw new Error("This carousel has no image layers. Create a new carousel."); }
+        if (!effects.property("Orbit State")) { addControl(controller, "ADBE Point3D Control", "Orbit State", [0, 0, 0]); }
+        var timing = 'var n = ' + children.length + ';\n' +
+            'var u = Math.max(0.05, effect("Unfold Time")(1)), z = Math.max(0.05, effect("Zoom Time")(1));\n' +
+            'var h = Math.max(0, effect("Image Hold")(1)), m = Math.max(0.05, effect("Image Transition")(1));\n';
+        control(controller, "Orbit State").expression = orbitState.toString() + '\n' + timing +
+            'orbitState(time - inPoint, n, u, z, h, m);';
+        if (!effects.property("Loop Duration")) { addControl(controller, "ADBE Slider Control", "Loop Duration", 0); }
+        control(controller, "Loop Duration").expression = timing + '1.1 + 2*u + 2*z + (n+1)*h + n*m;';
+        var tr = controller.property("ADBE Transform Group");
+        tr.property("ADBE Rotate Z").expression =
+            'effect("Unfolded Orbit")(1) > 0.5 ? value : value + (time - inPoint) * effect("Speed (deg/sec)")(1);';
+        tr.property("ADBE Scale").expression =
+            'var s = 1;\nif (effect("Unfolded Orbit")(1) > 0.5) {\n' +
+            'var o = effect("Orbit State")(1);\n' +
+            's += (Math.max(1, effect("Focus Zoom")(1)/100) - 1) * Math.max(1-o[0], o[1]);\n}\n[value[0]*s, value[1]*s];';
+        for (i = 0; i < children.length; i++) {
+            child = children[i];
+            tr = child.property("ADBE Transform Group");
+            var position = tr.property("ADBE Position");
+            var match = position.expression.match(/var slot = (\d+), n =/);
+            if (!match) { throw new Error("Cannot identify an image slot. Restore its generated Position expression before changing animation mode."); }
+            var angle = angleExpression(Number(match[1]), children.length);
+            var orbit = 'var o = parent.effect("Orbit State")(1);\n' +
+                'var dir = parent.effect("Orbit Clockwise")(1) > 0.5 ? 1 : -1;\n' +
+                'var travel = o[2] * 360;\n' +
+                'if (parent.effect("Half Circle")(1) > 0.5 && n > 1 && o[2] > 1 && o[2] < 2) {\n' +
+                '  var progress = (o[2]-1)*n;\n' +
+                '  if (dir > 0) { travel = 360 + Math.min(progress,1)*180 + Math.max(0,progress-1)*step; }\n' +
+                '  else { travel = 360 + Math.min(progress,n-1)*step + Math.max(0,progress-(n-1))*180; }\n' +
+                '}\na += dir * travel;\n';
+            var focusWeight = 'var delta = (a-parent.effect("Start Angle")(1))*Math.PI/180;\n' +
+                'var d = Math.acos(Math.max(-1,Math.min(1,Math.cos(delta))));\n' +
+                'var f = Math.min(1,d/(step*Math.PI/180*0.85)); f = f*f*(3-2*f);\n';
+            position.expression = angle + 'var r = Math.max(0, parent.effect("Radius")(1));\n' +
+                'var p;\nif (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit +
+                'var focus = parent.effect("Start Angle")(1) * Math.PI/180, rad = a * Math.PI/180;\n' +
+                'p = [r*(o[0]*Math.cos(rad)-o[1]*Math.cos(focus)), r*(o[0]*Math.sin(rad)-o[1]*Math.sin(focus))];\n' +
+                '} else { var rad = a*Math.PI/180; p = [r*Math.cos(rad), r*Math.sin(rad)]; }\np;';
+            tr.property("ADBE Scale").expression = angle +
+                'var s = Math.max(1,parent.effect("Image Size")(1))/Math.max(thisLayer.source.width*thisLayer.source.pixelAspect/thisComp.pixelAspect,thisLayer.source.height)*100;\n' +
+                'if (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit + focusWeight +
+                's *= 1-o[1]*f*(1-Math.max(0.1,Math.min(1,parent.effect("Side Image Scale")(1)/100)));\n}\n[s,s];';
+            tr.property("ADBE Rotate Z").expression = angle +
+                'var offset = parent.effect("Image Rotation Offset")(1);\nvar result;\n' +
+                'if (parent.effect("Unfolded Orbit")(1) > 0.5) { result = -parent.transform.rotation + offset; }\n' +
+                'else { result = parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation + offset : a + 90 + offset; }\nresult;';
+            tr.property("ADBE Opacity").expression = angle +
+                'var alpha = 1;\nif (parent.effect("Unfolded Orbit")(1) > 0.5 && slot !== 0) {\n' +
+                'alpha = Math.min(1, parent.effect("Orbit State")(1)[0] * 4);\n}\nvalue * alpha;';
+            var childEffects = child.property("ADBE Effect Parade");
+            var blur = childEffects.property("RC Focus Blur");
+            if (!blur) { blur = childEffects.addProperty("ADBE Gaussian Blur 2"); blur.name = "RC Focus Blur"; }
+            blur.property(1).expression = angle +
+                'var b = 0;\nif (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit +
+                focusWeight +
+                'var scale = Math.max(0.001, Math.abs(thisLayer.transform.scale[0]*parent.transform.scale[0]/10000));\n' +
+                'b = Math.max(0,parent.effect("Focus Blur")(1))*o[1]*f/scale;\n}\nb;';
+        }
+    }
 
     function activeComp() {
         return app.project && app.project.activeItem instanceof CompItem ? app.project.activeItem : null;
@@ -120,6 +257,20 @@
         }
     }
 
+    function arcControls(layer, settings) {
+        if (!layer.property("ADBE Effect Parade").property("Half Circle")) {
+            addControl(layer, "ADBE Checkbox Control", "Half Circle", settings.halfCircle ? 1 : 0);
+        } else {
+            setControl(layer, "Half Circle", settings.halfCircle ? 1 : 0);
+        }
+    }
+
+    function arcExpression() {
+        return 'var step = 360 / n;\n' +
+            'if (parent.effect("Half Circle")(1) > 0.5 && n > 1) { step = 180 / (n - 1); }\n' +
+            'var a = parent.effect("Start Angle")(1) + step * slot;\n';
+    }
+
     function angleExpression(slot, count) {
         // ponytail: O(N) shuffle per image; precompute slots if hundreds of images make previews slow.
         // Custom PRNG keeps the permutation identical across layers, unlike per-layer AE random seeds.
@@ -132,7 +283,7 @@
             '    seed = (seed * 16807) % 2147483647; j = seed % (i + 1);\n' +
             '    temp = order[i]; order[i] = order[j]; order[j] = temp;\n' +
             '  }\n  slot = order[slot];\n}\n' +
-            'var a = parent.effect("Start Angle")(1) + 360 * slot / n;\n';
+            arcExpression();
     }
 
     function upgradeArrangement(controller) {
@@ -143,6 +294,15 @@
         for (i = 1; i <= comp.numLayers; i++) {
             var layer = comp.layer(i);
             if (layer.parent !== controller || !isCarouselSource(layer.source)) { continue; }
+            // Upgrade published spacing in place without changing slots or the expression body.
+            var transforms = layer.property("ADBE Transform Group");
+            var properties = [transforms.property("ADBE Position"), transforms.property("ADBE Rotate Z")];
+            for (var j = 0; j < properties.length; j++) {
+                var expression = properties[j].expression;
+                var upgraded = expression.replace(
+                    /^var a = parent\.effect\("Start Angle"\)\(1\) \+ 360 \* slot \/ n;\r?\n/m, arcExpression());
+                if (upgraded !== expression) { properties[j].expression = upgraded; }
+            }
             var match = layer.property("ADBE Transform Group").property("ADBE Position").expression.match(legacy);
             if (match) { images.push({layer: layer, angle: Number(match[1])}); }
         }
@@ -189,6 +349,7 @@
         }
         cornerControls(layer, settings);
         arrangementControls(layer, settings);
+        arcControls(layer, settings);
         upgradeArrangement(layer);
         setControl(layer, "Radius", settings.radius);
         setControl(layer, "Image Size", settings.size);
@@ -204,6 +365,21 @@
         for (i = 1; i <= comp.numLayers; i++) {
             var child = comp.layer(i);
             if (child.parent === layer && isCarouselSource(child.source)) { roundImage(child); }
+        }
+        if (settings.orbit || layer.property("ADBE Effect Parade").property("Unfolded Orbit")) {
+            orbitControls(layer, settings);
+            installOrbit(layer);
+            if (settings.orbit) {
+                var end = layer.inPoint + orbitDuration(settings, carouselSources(layer).length);
+                if (layer.outPoint < end) { layer.outPoint = end; }
+                for (i = 1; i <= comp.numLayers; i++) {
+                    child = comp.layer(i);
+                    if (child.parent === layer && isCarouselSource(child.source) && child.outPoint < end) {
+                        holdShortPrecomp(child, end);
+                        child.outPoint = end;
+                    }
+                }
+            }
         }
     }
 
@@ -330,6 +506,7 @@
             addControl(controller, "ADBE Angle Control", "Image Rotation Offset", settings.offset);
             cornerControls(controller, settings);
             arrangementControls(controller, settings);
+            arcControls(controller, settings);
             stage = "Set controller rotation";
             controller.property("ADBE Transform Group").property("ADBE Rotate Z").expression = 'value + (time - inPoint) * effect("Speed (deg/sec)")(1);';
 
@@ -344,9 +521,7 @@
                 if (footage[i] instanceof CompItem && footage[i].duration < comp.duration) {
                     stage = "Hold last frame: " + footage[i].name;
                     // Let shorter precomps play normally, then hold their last frame.
-                    layer.timeRemapEnabled = true;
-                    layer.property("ADBE Time Remapping").expression =
-                        'Math.min(Math.max(time - startTime, 0), Math.max(0, thisLayer.source.duration - thisLayer.source.frameDuration));';
+                    holdShortPrecomp(layer, comp.duration);
                 }
                 layer.outPoint = comp.duration;
                 layer.parent = controller;
@@ -365,6 +540,11 @@
                     'parent.effect("Keep Upright")(1) > 0.5 ? -parent.transform.rotation + offset : a + 90 + offset;';
                 stage = "Set rounded-corner mask: " + footage[i].name;
                 roundImage(layer);
+            }
+            if (settings.orbit) {
+                stage = "Set Unfolded Orbit animation";
+                orbitControls(controller, settings);
+                installOrbit(controller);
             }
             stage = "Select controller and open composition";
             controller.moveToBeginning();
@@ -422,7 +602,23 @@
     rescan.alignment = ["right", "center"];
     carouselMenu.helpTip = "Finds carousels made by this script in every composition. Choose one to load its settings.";
 
-    var images = panel(win, "1. Images / Comps - original order");
+    var modeRow = win.add("group");
+    modeRow.add("statictext", undefined, "Animation");
+    var mode = modeRow.add("dropdownlist", undefined, []);
+    mode.add("item", "Continuous orbit");
+    mode.add("item", "Unfolded Orbit");
+    mode.selection = mode.items[0];
+    mode.alignment = ["fill", "center"];
+    var tabs = win.add("tabbedpanel");
+    tabs.alignChildren = ["fill", "fill"];
+    var imagesTab = tabs.add("tab", undefined, "Images");
+    var layoutTab = tabs.add("tab", undefined, "Layout");
+    var orbitTab = tabs.add("tab", undefined, "Timing / Focus");
+    var compTab = tabs.add("tab", undefined, "Composition");
+    var tabList = [imagesTab, layoutTab, orbitTab, compTab];
+    for (var ti = 0; ti < tabList.length; ti++) { tabList[ti].orientation = "column"; tabList[ti].alignChildren = ["fill", "top"]; }
+    tabs.selection = imagesTab;
+    var images = panel(imagesTab, "Images / Comps - original order");
     var list = images.add("listbox", undefined, [], {multiselect: true});
     list.preferredSize = [350, 110];
     var buttons = images.add("group");
@@ -434,7 +630,7 @@
     var clear = listButtons.add("button", undefined, "Clear");
     var count = images.add("statictext", undefined, "No images or comps added.");
 
-    var layout = panel(win, "2. Carousel");
+    var layout = panel(layoutTab, "Carousel layout");
     var compAtOpen = activeComp();
     var base = compAtOpen ? Math.min(compAtOpen.width, compAtOpen.height) : 1080;
     var radius = field(layout, "Radius (px)", Math.round(base * 0.32));
@@ -443,6 +639,13 @@
     speed.helpTip = "Constant speed. 30 degrees/sec completes one revolution in 12 seconds. 0 is static.";
     var clockwise = layout.add("checkbox", undefined, "Clockwise rotation");
     clockwise.value = true;
+    var arcRow = layout.add("group");
+    arcRow.add("statictext", undefined, "Arc");
+    var arc = arcRow.add("dropdownlist", undefined, []);
+    arc.add("item", "Full circle (360 degrees)");
+    arc.add("item", "Half circle (180 degrees)");
+    arc.selection = arc.items[0];
+    arc.helpTip = "Half circle includes both endpoints. Start angle chooses the first endpoint; Speed rotates the whole arrangement.";
     var startAngle = field(layout, "Start angle (degrees)", -90);
     startAngle.helpTip = "First slot: -90 = top, 0 = right, 90 = bottom, 180 = left. Shuffle changes which image occupies it.";
     var upright = layout.add("radiobutton", undefined, "Keep images upright while orbiting");
@@ -471,7 +674,19 @@
         status.text = "New seed ready. Click Create, or Update Carousel to change the loaded carousel.";
     };
 
-    var destination = panel(win, "3. Composition");
+    var orbitPanel = panel(orbitTab, "Unfolded Orbit");
+    var orbitInputs = [];
+    for (var oi = 0; oi < orbitFields.length; oi++) {
+        orbitInputs.push(field(orbitPanel, orbitFields[oi][0], orbitFields[oi][3]));
+        orbitInputs[oi].onChanging = updateOrbitSummary;
+    }
+    var loopInfo = orbitPanel.add("statictext", undefined, "", {multiline: true});
+    loopInfo.preferredSize = [350, 58];
+    orbitPanel.add("statictext", undefined, "Unfold > ring > zoom > image holds > return", {multiline: true});
+    orbitInputs[4].helpTip = "Magnifies the ring's image size for the centered hero and the focus carousel.";
+    orbitInputs[5].helpTip = "Blur at the rendered image size. The focused image remains sharp.";
+
+    var destination = panel(compTab, "Composition");
     var useActive = destination.add("checkbox", undefined, "Add to the active composition");
     useActive.value = !!compAtOpen;
     var newCompFields = destination.add("group");
@@ -496,6 +711,41 @@
     var status = win.add("statictext", undefined, "Add images or comps, choose an orientation, then create.", {multiline: true});
     status.preferredSize = [350, 36];
 
+    function isOrbitMode() { return mode.selection === mode.items[1]; }
+
+    function updateOrbitSummary() {
+        try {
+            var s = {};
+            for (var i = 0; i < orbitFields.length; i++) {
+                var spec = orbitFields[i];
+                s[spec[2]] = number(orbitInputs[i].text, spec[0], spec[4], spec[5], false);
+            }
+            loopInfo.text = "Loop: " + orbitDuration(s, files.length).toFixed(2) + " s for " + files.length +
+                " images. New comp duration is automatic. Existing comps must fit the full loop.";
+        } catch (invalid) { loopInfo.text = "Enter valid timing and focus values to calculate the loop."; }
+    }
+
+    function updateMode() {
+        var enabled = isOrbitMode();
+        orbitPanel.enabled = enabled;
+        speed.enabled = upright.enabled = radial.enabled = !enabled;
+        duration.enabled = !enabled;
+        clockwise.helpTip = "Unfolded Orbit: unchecked presents images in the list's order; checked reverses the orbit.";
+        updateOrbitSummary();
+    }
+    mode.onChange = function () {
+        if (isOrbitMode() && !boundController && !orbitDefaultsApplied) {
+            clockwise.value = false;
+            rounded.value = true;
+            cornerRadius.text = "12";
+            rounded.onClick();
+            if (!useActive.value) { width.text = "1080"; height.text = "1440"; }
+            orbitDefaultsApplied = true;
+        }
+        updateMode();
+        if (isOrbitMode()) { tabs.selection = orbitTab; }
+    };
+
     function refreshList() {
         list.removeAll();
         for (var i = 0; i < files.length; i++) {
@@ -511,6 +761,7 @@
         projectAdd.enabled = add.enabled = remove.enabled = clear.enabled = !boundController;
         destination.enabled = !boundController;
         apply.enabled = !!boundController;
+        updateOrbitSummary();
     }
 
     function loadCarousel(layer) {
@@ -528,6 +779,8 @@
         startAngle.text = String(control(layer, "Start Angle").value);
         offset.text = String(control(layer, "Image Rotation Offset").value);
         var effects = layer.property("ADBE Effect Parade");
+        arc.selection = arc.items[0];
+        if (effects.property("Half Circle") && control(layer, "Half Circle").value > 0.5) { arc.selection = arc.items[1]; }
         rounded.value = effects.property("Rounded Corners") ? control(layer, "Rounded Corners").value > 0.5 : false;
         cornerRadius.text = effects.property("Corner Radius") ? String(control(layer, "Corner Radius").value) : "24";
         cornerRadius.enabled = rounded.value;
@@ -536,9 +789,18 @@
         seed.enabled = shuffle.value;
         upright.value = control(layer, "Keep Upright").value > 0.5;
         radial.value = !upright.value;
+        mode.selection = mode.items[0];
+        if (effects.property("Unfolded Orbit") && control(layer, "Unfolded Orbit").value > 0.5) { mode.selection = mode.items[1]; }
+        if (isOrbitMode()) { clockwise.value = control(layer, "Orbit Clockwise").value > 0.5; }
+        for (var oi = 0; oi < orbitFields.length; oi++) {
+            var spec = orbitFields[oi];
+            orbitInputs[oi].text = String(spec[3]);
+            if (effects.property(spec[1])) { orbitInputs[oi].text = String(control(layer, spec[1]).value); }
+        }
         files = carouselSources(layer);
         boundController = layer;
         refreshList();
+        updateMode();
         status.text = "Loaded " + layer.containingComp.name + " / " + layer.name + ". Change settings, then Update Carousel.";
     }
 
@@ -645,18 +907,39 @@
     clear.onClick = function () { files = []; refreshList(); };
 
     function settings() {
-        return {
+        var result = {
             radius: number(radius.text, "Radius", 0, 100000, false),
             size: number(size.text, "Image size", 1, 30000, false),
             speed: number(speed.text, "Speed", 0, 36000, false) * (clockwise.value ? 1 : -1),
             angle: number(startAngle.text, "Start angle", -36000, 36000, false),
+            halfCircle: arc.selection === arc.items[1],
             offset: number(offset.text, "Image rotation offset", -36000, 36000, false),
             upright: upright.value,
             rounded: rounded.value,
             cornerRadius: number(cornerRadius.text, "Corner radius", 0, 15000, false),
             shuffle: shuffle.value,
-            seed: number(seed.text, "Arrangement seed", 0, 999999, true)
+            seed: number(seed.text, "Arrangement seed", 0, 999999, true),
+            orbit: isOrbitMode(),
+            orbitClockwise: clockwise.value
         };
+        for (var i = 0; i < orbitFields.length; i++) {
+            var spec = orbitFields[i];
+            result[spec[2]] = spec[3];
+            if (result.orbit) { result[spec[2]] = number(orbitInputs[i].text, spec[0], spec[4], spec[5], false); }
+            else {
+                var saved = Number(orbitInputs[i].text);
+                if (isFinite(saved) && saved >= spec[4] && saved <= spec[5]) { result[spec[2]] = saved; }
+            }
+        }
+        return result;
+    }
+
+    function validateLoop(s, comp, controller) {
+        var start = controller ? controller.inPoint : 0;
+        if (s.orbit && comp && comp.duration - start + 0.00001 < orbitDuration(s, files.length)) {
+            throw new Error("The full Unfolded Orbit loop needs " + orbitDuration(s, files.length).toFixed(2) +
+                " seconds from the controller's in point. Lengthen the destination composition, reduce the timing values, or create a new composition.");
+        }
     }
 
     function showError(error) {
@@ -676,11 +959,14 @@
             var s = settings();
             var comp = useActive.value ? destinationComp(files, activeComp(), compAtOpen) : null;
             if (useActive.value && !comp) { throw new Error("Click the destination composition's timeline, then Create again, or uncheck 'Add to the active composition'."); }
+            validateLoop(s, comp);
             if (!useActive.value) {
                 s.width = number(width.text, "Width", 4, 30000, true);
                 s.height = number(height.text, "Height", 4, 30000, true);
-                s.duration = number(duration.text, "Duration", 0.1, 10800, false);
                 s.fps = number(fps.text, "Frame rate", 1, 99, false);
+                if (s.orbit) { s.duration = Math.ceil(orbitDuration(s, files.length) * s.fps) / s.fps; }
+                else { s.duration = number(duration.text, "Duration", 0.1, 10800, false); }
+                if (s.duration > 10800) { throw new Error("The loop exceeds AE's three-hour composition limit. Reduce the timing values or image count."); }
                 if (s.duration * s.fps < 1) { throw new Error("Duration must include at least one frame."); }
             }
             var created = build(s, files, comp);
@@ -704,6 +990,7 @@
             if (!layer || !isValid(layer) || layer.comment !== TAG) {
                 throw new Error("Choose an existing carousel above, or click Refresh if it was removed or the project changed.");
             }
+            validateLoop(s, layer.containingComp, layer);
             app.beginUndoGroup("Update Radial Carousel");
             try { configure(layer, s); } finally { app.endUndoGroup(); }
             status.text = "Updated " + layer.containingComp.name + " / " + layer.name + ". Ctrl+Z undoes these settings.";
@@ -711,6 +998,7 @@
     };
 
     try { refreshCarousels(null, true); } catch (error) { showError(error); }
+    updateMode();
     refreshList();
     win.onResizing = win.onResize = function () { this.layout.resize(); };
     win.layout.layout(true);

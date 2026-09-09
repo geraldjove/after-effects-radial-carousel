@@ -7,6 +7,8 @@ const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '..', 'Radial Carousel.jsx'), 'utf8');
 new vm.Script(source);
 new vm.Script(fs.readFileSync(path.join(__dirname, 'Smoke Test.jsx'), 'utf8'));
+new vm.Script(fs.readFileSync(path.join(__dirname, 'Arc Test.jsx'), 'utf8'));
+new vm.Script(fs.readFileSync(path.join(__dirname, 'Unfolded Orbit Test.jsx'), 'utf8'));
 let checks = 0;
 const near = (a, b) => { assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`); checks++; };
 const liveItems = [];
@@ -75,7 +77,7 @@ const app = {
 };
 const context = {app, CompItem, FootageItem, ImportOptions, ImportAsType: {FOOTAGE: 1}, MaskMode: {INTERSECT: 4}, isValid: item => !!item && !item.invalid};
 // Cut only the GUI construction from a test copy, exposing the unmodified rig builder.
-vm.runInNewContext(source.slice(0, source.indexOf('    var win =')) + 'this.api = {build: build, number: number, configure: configure, control: control};})(this);', context);
+vm.runInNewContext(source.slice(0, source.indexOf('    var win =')) + 'this.api = {build: build, number: number, configure: configure, control: control, orbitState: orbitState, orbitDuration: orbitDuration};})(this);', context);
 const {api} = context;
 const files = [{name: 'Portrait', width: 100, height: 160}, {name: 'Landscape', width: 200, height: 100}, {name: 'Anamorphic', width: 100, height: 100, pixelAspect: 2}].map(f => ({...f, exists: true}));
 const s = {radius: 240, size: 160, speed: 30, angle: -90, offset: 0, upright: true, rounded: false, cornerRadius: 24, shuffle: false, seed: 1, width: 800, height: 800, duration: 12, fps: 30};
@@ -216,7 +218,7 @@ assert.equal(importCount, uiImports);
 assert.equal(existing.parentFolder, originalFolder);
 const roundedToggle = find('checkbox', 'Rounded corners');
 const cornerInput = find('statictext', 'Corner radius (px)');
-const cornerRow = window.children.flatMap(p => p.children).find(row => row.children.includes(cornerInput));
+const cornerRow = cornerInput.parent;
 const cornerField = cornerRow.children.find(c => c.type === 'edittext');
 roundedToggle.value = true;
 roundedToggle.onClick();
@@ -582,7 +584,7 @@ app.project.items.addComp = (...args) => {
 find('button', 'Create Radial Carousel').onClick();
 app.project.items.addComp = realAddComp;
 const diagnostic = alerts.pop();
-assert.match(diagnostic, /Radial Carousel 1\.5\.2/);
+assert.match(diagnostic, /Radial Carousel 1\.6\.1/);
 assert.match(diagnostic, /Action: Create Radial Carousel/);
 assert.match(diagnostic, /Step: Add carousel layer 1: Artwork precomp/);
 assert.match(diagnostic, /Line: 321/);
@@ -602,6 +604,227 @@ vm.runInNewContext(fs.readFileSync(recoveryFile, 'utf8'), {
     File: RecoveryFile, $: {fileName: recoveryFile}, alert: result => { recoveryResult = result; }
 });
 assert.match(recoveryResult, /^PASS: 5 recovery checks/);
+
+// Unfolded Orbit: evaluate the shipped expressions with their actual dependencies.
+const orbitSettings = {...s, orbit: true, orbitClockwise: false, unfold: 0.8, zoomTime: 1.15,
+    hold: 0.8, transition: 0.6, zoom: 280, blur: 18, sideScale: 50, duration: 17};
+function orbitSample(rig, layer, name, time) {
+    const effect = n => () => {
+        const p = api.control(rig, n);
+        if (!p.expression) return p.value;
+        return vm.runInNewContext(p.expression, {effect, time, inPoint: rig.inPoint});
+    };
+    const rotation = vm.runInNewContext(rig.property('ADBE Transform Group').property('ADBE Rotate Z').expression,
+        {effect, time, inPoint: rig.inPoint, value: 0});
+    const scale = vm.runInNewContext(rig.property('ADBE Transform Group').property('ADBE Scale').expression,
+        {effect, value: [100, 100]});
+    const layerScale = vm.runInNewContext(layer.property('ADBE Transform Group').property('ADBE Scale').expression,
+        {parent: {effect}, thisLayer:{source:layer.source}, thisComp:rig.containingComp});
+    const p = name === 'blur' ? layer.property('ADBE Effect Parade').property('RC Focus Blur').property(1) : layer.property('ADBE Transform Group').property(name);
+    return vm.runInNewContext(p.expression, {parent: {effect, transform: {rotation, scale}}, thisLayer: {source: layer.source, transform: {scale: layerScale}},
+        thisComp: rig.containingComp, value: 100});
+}
+for (const halfCircle of [false, true]) {
+for (const n of [1, 2, 3, 8, 12]) {
+    const shapeSettings = {...orbitSettings, halfCircle};
+    const inputs = Array.from({length: n}, (_,i) => ({...files[i%files.length], name: 'Card '+i}));
+    const rig = api.build(shapeSettings, inputs, null);
+    const cards = rig.containingComp.list.filter(l=>l.parent === rig).reverse();
+    const length = api.orbitDuration(orbitSettings, n);
+    if (n===8) near(length, 17);
+    for (const reverse of [false, true]) {
+        api.configure(rig, {...shapeSettings, orbitClockwise: reverse});
+        for (let i=0;i<n;i++) {
+            const focusIndex = reverse ? (n-i)%n : i;
+            const time = 2.5 + i*1.4 + 0.4;
+            const pos = orbitSample(rig,cards[focusIndex],'ADBE Position',time);
+            near(pos[0],0); near(pos[1],0);
+            near(orbitSample(rig,cards[focusIndex],'blur',time),0);
+            const focusedScale=orbitSample(rig,cards[focusIndex],'ADBE Scale',time)[0];
+            near(focusedScale*Math.max(cards[focusIndex].source.width*cards[focusIndex].source.pixelAspect,cards[focusIndex].source.height)/100,160);
+        }
+        for (let i=0;i<n;i++) {
+            near(orbitSample(rig,cards[i],'ADBE Opacity',0),i===0?100:0);
+            for (const property of ['ADBE Position','ADBE Opacity','blur','ADBE Rotate Z']) {
+                const start = [].concat(orbitSample(rig,cards[i],property,0));
+                const end = [].concat(orbitSample(rig,cards[i],property,length));
+                start.forEach((v,j)=>near(v,end[j]));
+            }
+            const ring = orbitSample(rig,cards[i],'ADBE Position',1.2);
+            near(Math.hypot(...ring),orbitSettings.radius);
+            const angle = (-90 + i * (halfCircle && n > 1 ? 180/(n-1) : 360/n)) * Math.PI/180;
+            near(ring[0], 240*Math.cos(angle)); near(ring[1], 240*Math.sin(angle));
+            near(orbitSample(rig,cards[i],'blur',1.2),0);
+            if(i && n>1) {
+                assert.ok(orbitSample(rig,cards[i],'blur',2.9)>0);
+                const side=orbitSample(rig,cards[i],'ADBE Scale',2.9)[0];
+                near(side*Math.max(cards[i].source.width*cards[i].source.pixelAspect,cards[i].source.height)/100,80);
+            }
+        }
+    }
+    for (const t of [-0.01,0,0.3,1.1,1.35,2.5,length-1.35,length-1.1,length-0.3,length]) {
+        const left = api.orbitState(t-1e-7,n,0.8,1.15,0.8,0.6);
+        const right = api.orbitState(t+1e-7,n,0.8,1.15,0.8,0.6);
+        near(left[0],right[0]); near(left[1],right[1]);
+        near(Math.sin(left[2]*Math.PI*2),Math.sin(right[2]*Math.PI*2));
+    }
+    const counts = cards.map(l=>l.property('ADBE Effect Parade').effects.length);
+    api.configure(rig, {...shapeSettings, orbit:false});
+    cards.forEach((l,i)=>{near(Math.hypot(...orbitSample(rig,l,'ADBE Position',4)),240);near(orbitSample(rig,l,'blur',4),0);near(orbitSample(rig,l,'ADBE Opacity',0),100);assert.equal(l.property('ADBE Effect Parade').effects.length,counts[i]);});
+}
+}
+// Real panel flow: choose mode, create, reopen, update, reject a truncated loop.
+vm.runInContext(source,uiContext);
+find('dropdownlist').selection = find('dropdownlist').items[0]; find('dropdownlist').onChange();
+const animationMenu = find('statictext','Animation').parent.children.find(c=>c.type==='dropdownlist');
+animationMenu.selection = animationMenu.items[1]; animationMenu.onChange();
+find('checkbox','Add to the active composition').value = false;
+app.project.selection = [artwork,existing]; find('button','Use Project Selection').onClick();
+find('button','Create Radial Carousel').onClick();
+assert.equal(alerts.length,0);
+const orbitComp = app.project.activeItem, orbitCtrl = orbitComp.list[0];
+near(orbitComp.duration, Math.ceil(api.orbitDuration(orbitSettings,2)*30)/30);
+near(api.control(orbitCtrl,'Unfolded Orbit').value,1);
+const orbitCount = orbitComp.numLayers, orbitEffects = orbitCtrl.property('ADBE Effect Parade').effects.length;
+vm.runInContext(source,uiContext);
+assert.equal(orbitCtrl.property('ADBE Effect Parade').effects.length,orbitEffects,'Reopening remains read only');
+const reopenedMode = find('statictext','Animation').parent.children.find(c=>c.type==='dropdownlist');
+assert.equal(reopenedMode.selection,reopenedMode.items[1]);
+find('statictext','Focus blur (px)').parent.children.find(c=>c.type==='edittext').text = '27';
+find('button','Update Carousel').onClick();
+near(api.control(orbitCtrl,'Focus Blur').value,27);
+assert.equal(orbitComp.numLayers,orbitCount,'Update does not duplicate cards');
+find('statictext','Hold per image (s)').parent.children.find(c=>c.type==='edittext').text = '60';
+find('button','Update Carousel').onClick();
+assert.match(alerts.pop(),/full Unfolded Orbit loop needs/);
+near(api.control(orbitCtrl,'Image Hold').value,0.8);
+find('statictext','Hold per image (s)').parent.children.find(c=>c.type==='edittext').text = '-1';
+find('button','Update Carousel').onClick();
+assert.match(alerts.pop(),/Hold per image/);
+assert.equal(app.undoDepth,0);
+// An older short rig must cover the complete loop after its comp is lengthened.
+const shortSource=track(new CompItem('Short orbit source',800,600,1,4,30));
+const shortRig=api.build({...s,duration:4},[{item:shortSource,name:shortSource.name}],null);
+const shortCard=shortRig.containingComp.list.find(l=>l.parent===shortRig);
+shortRig.containingComp.duration=17; shortRig.inPoint=1;
+api.configure(shortRig,orbitSettings);
+near(shortRig.outPoint,1+api.orbitDuration(orbitSettings,1));
+near(shortCard.outPoint,shortRig.outPoint);
+assert.equal(shortCard.timeRemapEnabled,true);
+near(shortSource.duration,4);
+// A shifted controller also needs room after its in point; rejection precedes writes.
+find('statictext','Hold per image (s)').parent.children.find(c=>c.type==='edittext').text='0.8';
+orbitCtrl.inPoint=2;
+find('button','Update Carousel').onClick();
+assert.match(alerts.pop(),/from the controller's in point/);
+console.log('PASS: Unfolded Orbit with 180/360 arcs, loop boundaries, all-card focus order, both directions, 1/2/3/8/12 cards, blur, opacity, mode switching, recovery, updates, and timing validation.');
+// Half-circle geometry uses both endpoints; full circles never duplicate the first slot.
+function arcSample(rig, layer, property, rotation = 0) {
+    return vm.runInNewContext(layer.property('ADBE Transform Group').property(property).expression, {
+        parent: {effect: name => () => api.control(rig, name).value, transform: {rotation}}
+    });
+}
+for (const n of [1, 2, 3, 8]) {
+    const inputs = Array.from({length: n}, (_, i) => ({...files[i % files.length], name: 'Arc ' + i}));
+    const rig = api.build({...s, halfCircle: true}, inputs, null);
+    const cards = rig.containingComp.list.filter(l => l.parent === rig).reverse();
+    const effectCount = rig.property('ADBE Effect Parade').effects.length;
+    for (const halfCircle of [true, false, true]) {
+        for (const angle of [-180, -90, 0, 90]) {
+            for (const shuffle of [false, true]) {
+                for (const upright of [false, true]) {
+                    api.configure(rig, {...s, halfCircle, angle, shuffle, seed: 42, upright, offset: 12});
+                    const expected = Array.from({length: n}, (_, i) => {
+                        const a = (angle + i * (halfCircle ? 180 / Math.max(1, n - 1) : 360 / n)) * Math.PI / 180;
+                        return [s.radius * Math.cos(a), s.radius * Math.sin(a)];
+                    });
+                    const actual = cards.map(l => Array.from(arcSample(rig, l, 'ADBE Position')));
+                    assert.equal(new Set(actual.map(p => p.map(v => v.toFixed(5)).join(','))).size, n);
+                    actual.forEach((p, i) => {
+                        const target = shuffle ? expected.find(q => Math.hypot(p[0]-q[0], p[1]-q[1]) < 1e-7) : expected[i];
+                        assert.ok(target, 'Shuffling only permutes the arc slots');
+                        near(p[0], target[0]); near(p[1], target[1]);
+                        for (const rotation of [-45, 0, 45]) {
+                            const r = arcSample(rig, cards[i], 'ADBE Rotate Z', rotation);
+                            if (upright) near(r + rotation, 12);
+                            else {
+                                near(Math.cos((r-102)*Math.PI/180), p[0]/s.radius);
+                                near(Math.sin((r-102)*Math.PI/180), p[1]/s.radius);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+    assert.equal(rig.containingComp.numLayers, n + 1);
+    assert.equal(rig.property('ADBE Effect Parade').effects.length, effectCount);
+}
+
+// Recover published v1.3-v1.5 rigs without mutating them until Update; retain source order.
+const arcRig = api.build(s, files, null);
+const arcCards = arcRig.containingComp.list.filter(l => l.parent === arcRig).reverse();
+const arcEffects = arcRig.property('ADBE Effect Parade');
+arcEffects.effects = arcEffects.effects.filter(e => e.name !== 'Half Circle');
+for (const layer of arcCards) {
+    for (const name of ['ADBE Position', 'ADBE Rotate Z']) {
+        const p = layer.property('ADBE Transform Group').property(name);
+        p.expression = p.expression.replace(/var step = 360 \/ n;\n[^\n]+\n[^\n]+\n/,
+            'var a = parent.effect("Start Angle")(1) + 360 * slot / n;\n');
+    }
+}
+app.project.activeItem = arcRig.containingComp;
+const beforeArcLoad = arcEffects.effects.length;
+const beforeArcExpressions = arcCards.map(l => l.property('ADBE Transform Group').property('ADBE Position').expression);
+vm.runInContext(source, uiContext);
+const arcMenu = () => find('statictext', 'Arc').parent.children.find(c => c.type === 'dropdownlist');
+assert.equal(arcMenu().selection, arcMenu().items[0]);
+assert.equal(arcEffects.effects.length, beforeArcLoad, 'Opening an old rig adds no arc control');
+assert.deepEqual(arcCards.map(l => l.property('ADBE Transform Group').property('ADBE Position').expression), beforeArcExpressions);
+arcMenu().selection = arcMenu().items[1];
+find('button', 'Update Carousel').onClick();
+assert.equal(alerts.length, 0);
+near(api.control(arcRig, 'Half Circle').value, 1);
+arcCards.forEach((l, i) => {
+    const p = arcSample(arcRig, l, 'ADBE Position');
+    near(p[0], s.radius * Math.cos((-90+i*90)*Math.PI/180));
+    near(p[1], s.radius * Math.sin((-90+i*90)*Math.PI/180));
+});
+vm.runInContext(source, uiContext);
+assert.equal(arcMenu().selection, arcMenu().items[1], 'Reopening restores Half circle');
+assert.equal(find('listbox').items.length, files.length);
+// Pre-shuffle v1.0-v1.2 expressions also upgrade to a half circle, preserving order.
+for (const [i, l] of arcCards.entries()) {
+    for (const name of ['ADBE Position', 'ADBE Rotate Z']) {
+        const p = l.property('ADBE Transform Group').property(name);
+        p.expression = p.expression.replace(/^[\s\S]*?var a = [^\n]+\n/,
+            'var a = parent.effect("Start Angle")(1) + ' + i * 120 + ';\n');
+    }
+}
+api.configure(arcRig, {...s, halfCircle: true});
+arcCards.forEach((l, i) => {
+    const p = arcSample(arcRig, l, 'ADBE Position');
+    near(p[0], s.radius * Math.cos((-90+i*90)*Math.PI/180));
+    near(p[1], s.radius * Math.sin((-90+i*90)*Math.PI/180));
+});
+const arcControl = api.control(arcRig, 'Half Circle');
+arcControl.numKeys = 2; arcRig.containingComp.time = 4;
+arcMenu().selection = arcMenu().items[0];
+find('button', 'Update Carousel').onClick();
+assert.deepEqual(Array.from(arcControl.lastKey), [4, 0], 'Updating keyed arc inserts at the playhead');
+assert.equal(arcEffects.effects.length, beforeArcLoad + 1);
+
+// Creation callback saves the chosen arc, including a single-image carousel.
+find('dropdownlist').selection = find('dropdownlist').items[0]; find('dropdownlist').onChange();
+arcMenu().selection = arcMenu().items[1];
+find('checkbox', 'Add to the active composition').value = false;
+app.project.selection = [existing]; find('button', 'Use Project Selection').onClick();
+find('button', 'Create Radial Carousel').onClick();
+assert.equal(alerts.length, 0);
+near(api.control(app.project.activeItem.list[0], 'Half Circle').value, 1);
+assert.equal(app.project.activeItem.numLayers, 2);
+
+console.log('PASS: 180/360 geometry, endpoints, single image, orientations, shuffle, old-rig upgrade, create/update/reopen, and keyed arc controls.');
 console.log(`PASS: ${checks} numerical assertions, JSX syntax, input validation, import rollback, undo balancing, and keyframe update behavior.`);
 console.log('PASS: project source reuse, mixed sources, failure preservation, selection filtering/deduplication, actual panel callbacks, and destination fallback (stubbed AE/ScriptUI host).');
 console.log('PASS: rounded/square mask geometry, corner radius clamping/PAR, GUI load/apply, old-rig upgrades, and existing-mask preservation.');

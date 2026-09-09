@@ -1,6 +1,12 @@
 # Radial Carousel
 
-**Version 1.5.2** — an After Effects ScriptUI panel for creating and editing animated 2D circular carousels from still images and precomps. Includes upright/radial orientation, rounded corners, seeded image arrangements, and recovery of existing carousels.
+**Version 1.6.1.** An After Effects ScriptUI panel for
+creating and editing 2D carousels from still images and precomps. Includes the new
+**Unfolded Orbit** sequence, continuous upright/radial orbits, rounded corners,
+seeded arrangements, recovery of existing carousels, and a **180° half-circle** layout.
+
+This version combines Unfolded Orbit with the **Layout → Arc** control. Close and
+reopen the updated script to load the new controls; replace any installed copy too.
 
 [Download Radial Carousel.jsx](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/heads/main/Radial%20Carousel.jsx), or use **Code > Download ZIP** for the script, documentation, and tests.
 
@@ -17,10 +23,84 @@ Recovery works with earlier versions of this script, including renamed controlle
 
 To create another carousel:
 
-1. Choose **Create new carousel** in the dropdown. In AE's **Project panel**, select your imported still images or their compositions, then click **Use Project Selection** under **1. Images / Comps**. Each selected precomp becomes one carousel item and appears with a **[Comp]** label. To import images from disk instead, click **Add Files...**. You can mix images and precomps, add another batch, remove selected entries, or clear the list.
-2. Set radius, image size, speed, and orientation. For rounded image edges, enable **Rounded corners** and set **Corner radius (px)**. To vary the arrangement, enable **Shuffle image order** and set an **Arrangement seed**, or click **New Seed**.
-3. Choose the active composition or enter settings for a new one.
-4. Click **Create Radial Carousel**, then preview the timeline. The new carousel is loaded into update mode automatically.
+1. Choose **Create new carousel** in the dropdown. In AE's **Project panel**, select your imported still images or their compositions, then click **Use Project Selection** in the **Images** tab. Each selected precomp becomes one carousel item and appears with a **[Comp]** label. To import images from disk instead, click **Add Files...**. You can mix images and precomps, add another batch, remove selected entries, or clear the list.
+2. Choose **Continuous orbit** or **Unfolded Orbit** in the **Animation** dropdown.
+3. In **Layout**, choose **Arc → Full circle (360 degrees)** or **Half circle (180 degrees)**, then set radius, image size, direction, rounded corners, and optional shuffle. Continuous orbit also exposes speed and orientation. Unfolded Orbit keeps images upright.
+4. For Unfolded Orbit, use **Timing / Focus** to set timing, zoom, blur, and side-image size. Eight images with the default timing give a 17-second loop.
+5. In **Composition**, choose the active composition or enter settings for a new one. New Unfolded Orbit compositions automatically fit the loop duration. The first selection of this mode suggests a 1080 × 1440 canvas when creating a new composition.
+6. Click **Create Radial Carousel**, then preview the timeline. The new carousel is loaded into update mode automatically.
+
+## Arc: full circle or half circle
+
+**Layout → Arc** is available in both animation modes. Half circle distributes image
+centers from Start angle through Start angle + 180°, including both endpoints. One
+image stays at Start angle. Use `-180` for the top half, `-90` for the right half,
+`0` for the bottom half, or `90` for the left half. In Continuous orbit, Speed `0`
+keeps that half stationary; a nonzero speed rotates the entire semicircle.
+
+For an existing carousel, select it, choose Arc, and click **Update Carousel**.
+Earlier rigs open as full circles and receive the new **Half Circle** controller
+checkbox and spacing expressions on Update. Reopening restores the arc choice.
+Shuffle, radial/upright orientation, rounding, and keyframed controls are retained.
+
+Unfolded Orbit visits every image with either arc choice. With a half circle, the
+transition between the two endpoints crosses the empty half of the circle. Hold
+and transition durations remain the same, so that larger gap moves faster than
+the smaller gaps. Focus blur and side-image scaling follow the chosen spacing.
+
+## Unfolded Orbit
+
+The centered first card spreads into a ring. The view zooms in while the ring makes
+one turn, then holds each card in focus before advancing. Side cards shrink and
+blur. A second zoom/turn returns to the ring, which collapses to the first card.
+The motion repeats automatically. It uses native transforms, masks, and Gaussian
+Blur; no camera or additional plugin is required.
+
+| Control | Default | Behavior |
+| --- | --- | --- |
+| Unfold time | 0.8 s | Time to spread; also used to collapse. |
+| Zoom time | 1.15 s | Time to zoom/spin in; also used to return. |
+| Hold per image | 0.8 s | Pause on each card and on the first card after a full turn. |
+| Transition time | 0.6 s | Eased advance to the next card. |
+| Focus zoom | 280% | Magnification of the centered hero and focus carousel. |
+| Focus blur | 18 px | Blur on the surrounding cards at their rendered size. |
+| Side image scale | 50% | Size of surrounding cards relative to the focused card. |
+
+Unchecked **Clockwise rotation** presents cards in their original list order.
+Checking it reverses the direction. Shuffle changes the slot order; the image in
+slot zero becomes the opening/closing hero. **Start angle** sets the focus position
+around the ring; `-90` is the top, as in the reference. Controller Position still
+moves the whole composition and controller Scale still resizes it.
+
+For a 1080 × 1440 composition and eight 4:3 images, the rendered example uses
+**Radius 270**, **Image size 250**, **Corner radius 12**, and the timing/focus
+defaults above. Adjust radius or side-image scale if your images overlap.
+
+The loop length is `1.1 + 2×unfold + 2×zoom + (count+1)×hold + count×transition`.
+The extra 1.1 seconds consists of short opening/closing and ring pauses. A new
+composition rounds its duration up to a whole frame. Existing compositions must
+have room for the entire loop after the controller's in point. The script explains
+the required duration before making changes. When you lengthen an existing
+composition and update an older rig, its generated layers extend to fit the loop;
+short precomps hold their last frame without changing their source compositions.
+
+**Timing values should stay constant for a seamless loop.** Animating those values
+changes the time mapping. Layout, zoom, side size, and blur can be animated, but
+their endpoints must also match if you want a loop. Animation inside source
+precomps must loop independently; the rig does not rewrite source content. Still
+images give the demonstrated seamless visual loop.
+
+Reopen the panel and select the existing carousel to recover its mode and settings.
+Switching between modes updates the generated rig without duplicating images.
+Mode changes replace the script-managed transform/opacity expressions; preserve
+any custom replacements before changing modes. Keep the generated controller
+effect names, **Orbit State**, and **Loop Duration** intact.
+
+The reference was inspected from the public preview; this is an independently
+implemented AE version, with adjustable timing rather than a claim of an exact
+match. No reference media or template source is included.
+[Unfolded Orbit reference](https://108.supply/motion/unfolded-orbit), retrieved
+2026-09-10.
 
 If the panel is already running, close and reopen the updated script to see the new controls. If you installed a docked copy, replace that copy with this updated file before reopening it.
 
@@ -63,13 +143,74 @@ You can also edit the controller's Effect Controls directly. Move its Position t
 
 To dock the panel on Windows, copy **Radial Carousel.jsx** into your AE installation's `Support Files\Scripts\ScriptUI Panels` folder, restart AE, then open it from **Window > Radial Carousel**. For example, the AE 2026 installation path is `C:\Program Files\Adobe\Adobe After Effects 2026`.
 
-Verification: see `tests/check.cjs` for the runnable expression/validation checks (`node tests/check.cjs`). `tests/Smoke Test.jsx` is the native AE test: run it through File > Scripts > Run Script File. It creates temporary test compositions, verifies real expressions and imports, exports three preview PNGs, writes `tests/last-run.txt`, and removes its own project items. Only that test needs script file-writing permission. Native GUI/render validation is pending unless a completed PASS report is present; a blank report is not a pass.
+Verification: run `node tests/check.cjs` for expression/validation and simulated
+panel checks. `tests/Smoke Test.jsx` checks continuous orbit in native AE, including
+real imports and three PNG exports. `tests/Unfolded Orbit Test.jsx` exercises the
+new mode in native AE with eight synthetic source precomps, eleven PNG exports,
+and a full 17-second H.264 movie. Both native tests run through **File > Scripts >
+Run Script File** and need script file-writing permission for reports/exports.
+The panel itself does not need that preference.
+
+`tests/Arc Test.jsx` is the focused native check for the integrated 180°/360° control:
+GUI creation/reopening/updating, radial geometry, and both Unfolded Orbit directions.
+It writes `tests/arc-last-run.txt` and `tests/arc-preview.png`, then removes its
+synthetic project items. Only a completed PASS with successful cleanup counts.
+
+**Integrated Arc verification — 2026-09-10:** the v1.6.1 Node checks pass with 8,392
+numerical assertions plus the simulated GUI/recovery checks. Coverage includes both
+arcs, creation and updates, saved setting recovery, single-image layouts, old rigs,
+and Unfolded Orbit focus/blur/scale/loop behavior in both directions with 1/2/3/8/12
+images. The focused native Arc test has no completed report yet; the earlier native
+v1.6.0 Orbit result does not verify these newer edits.
+
+Native reports are `tests/last-run.txt` and `tests/orbit-last-run.txt`. Check for a
+completed PASS/COMPLETE result; an empty, RUNNING, or FAIL report is not a pass.
+The orbit test temporarily disables other queued renders, renders only its
+synthetic comp, restores their queue flags, and removes its test project items.
+It never saves the open project. Repeated movie tests choose a fresh numbered
+filename, avoiding overwrite prompts. The tests record project item counts before
+and after cleanup. Generated reports, images, movies, and projects are gitignored.
 
 For a quick native check of this recovery bug, run `tests/Recovery Test.jsx`. It runs the shipped recovery function on synthetic layers in AE's actual scripting engine and displays a PASS/FAIL dialog. It covers modern nonzero slots, slot zero, old rigs, unknown expressions, and empty carousels. It reads the production script without creating project items or writing files; it does not verify rendering or the complete GUI.
 
 This is a 2D circular carousel. No network calls, credentials, external libraries, database, or environment changes are involved.
 
-**Public build verification — 2026-09-10:** `node tests/check.cjs` passed on Node.js v26.5.0, including 2,005 numerical assertions, the simulated AE/ScriptUI checks described above, and five recovery cases. The production `.jsx` is unchanged from the local v1.5.2 build. These checks do not establish native AE GUI, import, or render behavior; run the included native tests to verify those paths. Node.js is only needed for the automated checks, not to use the carousel in After Effects.
+**Historical public v1.5.2 verification — 2026-09-10:** the then-current
+`node tests/check.cjs` passed on Node.js v26.5.0 with 2,005 numerical assertions,
+simulated AE/ScriptUI checks, and five recovery cases. That publication did not
+include native verification. The v1.6.0 results below describe an earlier development
+snapshot. Node.js is needed only for automated checks, not for
+using the carousel in After Effects.
+
+**Security and environment:** no dependencies, database, authentication, API,
+network requests, credentials, or environment variables were added. Settings are
+validated before creation or update. Imports remain linked to their sources;
+source compositions and unrelated layers are preserved. Create/update operations
+remain undoable. Large image counts or high-resolution blurred precomps can still
+increase AE preview/render time; no performance guarantee is made.
+
+Native Gaussian Blur match name: [Adobe-linked scripting reference](https://ae-scripting.docsforadobe.dev/matchnames/effects/firstparty/), retrieved 2026-09-10.
+
+**Historical v1.6.0 verification — 2026-09-10, Windows / AE 26.3x87:**
+`node tests/check.cjs` passed with 2,821 numerical assertions plus the existing
+recovery and simulated host checks. The final native Unfolded Orbit test passed
+942 assertions, exported eleven PNG frames, and rendered the full 17-second,
+1080 × 1440 H.264 movie at `tests/unfolded-orbit-preview-1.mp4`. Project item counts
+were 131 before and 131 after cleanup. Rendered frames were visually inspected.
+The first preview also exists at `tests/unfolded-orbit-preview.mp4`; a later retry
+stopped at an overwrite prompt, which led to the fresh-filename test fix.
+
+These checks cover this Windows build and synthetic source precomps. They do not
+establish compatibility with older AE versions, macOS, every imported file format,
+or an exact visual match to the reference. They do not verify the v1.6.1 integration.
+
+The extended continuous-orbit native smoke check is **incomplete**: after fixing
+its report header to convert `Date` explicitly to a string, it exported the three
+legacy preview frames, but AE exited before its final report/cleanup record. The
+exit cause was not established; no matching Windows Application Error event was
+found in the inspected interval. Do not treat that header-only report as a pass.
+Continuous-orbit automated regressions passed; the completed 942-assertion native
+result above applies to Unfolded Orbit and its tested create/recover/update paths.
 
 Last verified: 2026-09-10 — source: script implementation, local AE installation, and the test evidence described above. Installation/menu instructions: [Adobe's scripting documentation](https://helpx.adobe.com/uk/after-effects/desktop/automate-in-after-effects/automate-animation/scripts.html), retrieved 2026-09-10. Expression reference: [Adobe expression language reference](https://helpx.adobe.com/after-effects/desktop/work-with-expressions/expression-language-reference/expression-language-reference.html), retrieved 2026-09-10.
 

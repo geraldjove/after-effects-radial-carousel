@@ -6,7 +6,7 @@
     var here = new File($.fileName).parent;
     var report = new File(here.fsName + "/last-run.txt");
     if (!report.open("w")) { alert("Enable script file writing to save the test report."); return; }
-    report.writeln("Radial Carousel native AE smoke test | AE " + app.version + " | " + new Date());
+    report.writeln("Radial Carousel native AE smoke test | AE " + app.version + " | " + new Date().toString());
     report.close();
     var original = app.project.activeItem;
     var originalSelected = original instanceof CompItem ? original.selectedLayers : [];
@@ -59,11 +59,14 @@
         assert(code.indexOf(marker) >= 0, "Find instrumentation seam");
         code = code.replace(marker, '    $.global.__rcSmoke = {win: win, build: build, number: number, control: control, configure: configure, selectedController: selectedController, carouselMenu: carouselMenu, addSources: function(sources) { for (var i = 0; i < sources.length; i++) { files.push(sources[i]); } refreshList(); }, refresh: refreshList, list: list, create: create, load: load, apply: apply, radius: radius, size: size, speed: speed, clockwise: clockwise, upright: upright, radial: radial, startAngle: startAngle, offset: offset, rounded: rounded, cornerRadius: cornerRadius, shuffle: shuffle, seed: seed, newSeed: newSeed, useActive: useActive, width: width, height: height, duration: duration, fps: fps, status: status};\n    refreshList();\n    win.onResizing');
         code = code.replace("    function showError(error) {", "    function showError(error) { throw error;");
+        code = code.replace("win: win, build: build", "win: win, mode: mode, build: build");
         eval(code.replace(/^#target.*$/m, ""));
         api = $.global.__rcSmoke;
         assert(api.win.visible, "Floating GUI is visible");
         api.carouselMenu.selection = api.carouselMenu.items[0];
         api.carouselMenu.onChange();
+        api.mode.selection = api.mode.items[0]; api.mode.onChange();
+        api.shuffle.value = false; api.rounded.value = false;
         assert(!api.create.enabled, "Create disabled with no images");
 
         var files = [new File(here.fsName + "/portrait.png"), new File(here.fsName + "/landscape.png"), new File(here.fsName + "/portrait.png"), new File(here.fsName + "/landscape.png")];
