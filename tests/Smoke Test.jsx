@@ -60,12 +60,14 @@
         code = code.replace(marker, '    $.global.__rcSmoke = {win: win, build: build, number: number, control: control, configure: configure, selectedController: selectedController, carouselMenu: carouselMenu, addSources: function(sources) { for (var i = 0; i < sources.length; i++) { files.push(sources[i]); } refreshList(); }, refresh: refreshList, list: list, create: create, load: load, apply: apply, radius: radius, size: size, speed: speed, clockwise: clockwise, upright: upright, radial: radial, startAngle: startAngle, offset: offset, rounded: rounded, cornerRadius: cornerRadius, shuffle: shuffle, seed: seed, newSeed: newSeed, useActive: useActive, width: width, height: height, duration: duration, fps: fps, status: status};\n    refreshList();\n    win.onResizing');
         code = code.replace("    function showError(error) {", "    function showError(error) { throw error;");
         code = code.replace("win: win, build: build", "win: win, mode: mode, build: build");
+        code = code.replace("mode: mode, build: build", "mode: mode, arc: arc, gap: gap, build: build");
         eval(code.replace(/^#target.*$/m, ""));
         api = $.global.__rcSmoke;
         assert(api.win.visible, "Floating GUI is visible");
         api.carouselMenu.selection = api.carouselMenu.items[0];
         api.carouselMenu.onChange();
         api.mode.selection = api.mode.items[0]; api.mode.onChange();
+        api.arc.selection = api.arc.items[0]; api.gap.text = "0";
         api.shuffle.value = false; api.rounded.value = false;
         assert(!api.create.enabled, "Create disabled with no images");
 

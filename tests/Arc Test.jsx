@@ -1,4 +1,4 @@
-/* Focused native AE test for the integrated Arc dropdown and both animation modes.
+/* Focused native AE test for Arc, Gap, and both animation modes.
    Uses synthetic comps, writes one preview/report, and removes only its test assets.
 */
 (function () {
@@ -23,11 +23,14 @@
         var code = file.read().replace(/\r\n/g, "\n"); file.close();
         var seam = "    refreshList();\n    win.onResizing";
         assert(code.indexOf(seam) >= 0, "Find native instrumentation seam");
-        code = code.replace(seam, '    $.global.__rcArcTest = {win:win, tabs:tabs, layoutTab:layoutTab, arc:arc, mode:mode, menu:carouselMenu, create:create, apply:apply, load:load, addSources:function(s){files=s;refreshList();}, control:control, useActive:useActive, width:width, height:height, duration:duration, speed:speed, radius:radius, size:size, startAngle:startAngle, upright:upright, radial:radial};\n' + seam);
+        code = code.replace(seam, '    $.global.__rcArcTest = {win:win, tabs:tabs, layoutTab:layoutTab, arc:arc, gap:gap, mode:mode, menu:carouselMenu, create:create, apply:apply, load:load, addSources:function(s){files=s;refreshList();}, control:control, useActive:useActive, width:width, height:height, duration:duration, speed:speed, radius:radius, size:size, startAngle:startAngle, upright:upright, radial:radial};\n' + seam);
         code = code.replace("    function showError(error) {", "    function showError(error) { throw error;");
+        code = code.replace("gap:gap, mode:mode", "gap:gap, shuffle:shuffle, mode:mode");
         eval(code); api = $.global.__rcArcTest;
         assert(api.win.visible, "Native panel is visible");
         api.menu.selection = api.menu.items[0]; api.menu.onChange();
+        api.mode.selection = api.mode.items[0]; api.mode.onChange(); api.gap.text = "0";
+        api.shuffle.value = false;
         api.useActive.value = false; api.width.text = "800"; api.height.text = "800";
         api.duration.text = "12"; api.speed.text = "0"; api.radius.text = "240"; api.size.text = "120";
         api.startAngle.text = "-180"; api.upright.value = false; api.radial.value = true;
@@ -53,9 +56,15 @@
             near(p[0], 240*Math.cos(angle*Math.PI/180)); near(p[1], 240*Math.sin(angle*Math.PI/180));
             near(read(cards[i], "ADBE Rotate Z", 0), angle+90);
         }
+        api.gap.text = "40"; api.apply.onClick();
+        var first = read(cards[0], "ADBE Position", 0), second = read(cards[1], "ADBE Position", 0);
+        near(Math.sqrt(Math.pow(first[0]-second[0],2)+Math.pow(first[1]-second[1],2)),240*Math.sqrt(2)+40);
+        near(api.control(ctrl, "Radius").value, 240);
+        near(read(cards[0], "ADBE Scale", 0)[0], 75);
         comp.saveFrameToPng(0, new File(here.fsName + "/arc-preview.png"));
         api.win.close(); eval(code); api = $.global.__rcArcTest;
         assert(api.menu.selection.controller === ctrl && api.arc.selection === api.arc.items[1], "Reopen restores the native Arc dropdown");
+        near(Number(api.gap.text), 40);
         api.mode.selection = api.mode.items[1]; api.mode.onChange(); api.apply.onClick();
         for (var direction = 0; direction < 2; direction++) {
             api.control(ctrl, "Orbit Clockwise").setValue(direction);
@@ -71,10 +80,13 @@
         api.arc.selection = api.arc.items[0]; api.apply.onClick();
         for (i = 0; i < cards.length; i++) {
             angle = (-180+i*120)*Math.PI/180; p = read(cards[i], "ADBE Position", 0);
-            near(p[0], 240*Math.cos(angle)); near(p[1], 240*Math.sin(angle));
+            var expanded = 240+40/Math.sqrt(3);
+            near(p[0], expanded*Math.cos(angle)); near(p[1], expanded*Math.sin(angle));
         }
+        api.gap.text = "0"; api.apply.onClick();
+        first = read(cards[0], "ADBE Position", 0); near(Math.sqrt(first[0]*first[0]+first[1]*first[1]),240);
         assert(comp.numLayers === 4, "Update preserves the existing layers");
-        log("PASS: " + checks + " native assertions. Arc GUI create/reopen/update, 180/360 geometry, radial orientation, both Unfolded Orbit directions, and focus blur.");
+        log("PASS: " + checks + " native assertions. Arc/Gap GUI create/reopen/update, added spacing without resizing, 180/360 geometry, radial orientation, both Unfolded Orbit directions, and focus blur.");
     } catch (error) { log("FAIL: " + error.toString() + " / line " + error.line + " / checks " + checks); }
     finally {
         if (api) { api.win.close(); }

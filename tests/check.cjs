@@ -584,7 +584,7 @@ app.project.items.addComp = (...args) => {
 find('button', 'Create Radial Carousel').onClick();
 app.project.items.addComp = realAddComp;
 const diagnostic = alerts.pop();
-assert.match(diagnostic, /Radial Carousel 1\.6\.1/);
+assert.match(diagnostic, /Radial Carousel 1\.6\.2/);
 assert.match(diagnostic, /Action: Create Radial Carousel/);
 assert.match(diagnostic, /Step: Add carousel layer 1: Artwork precomp/);
 assert.match(diagnostic, /Line: 321/);
@@ -825,6 +825,83 @@ near(api.control(app.project.activeItem.list[0], 'Half Circle').value, 1);
 assert.equal(app.project.activeItem.numLayers, 2);
 
 console.log('PASS: 180/360 geometry, endpoints, single image, orientations, shuffle, old-rig upgrade, create/update/reopen, and keyed arc controls.');
+// Measure added spacing from the generated positions, independent of the radius formula.
+const distance = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1]);
+for (const halfCircle of [false, true]) for (const n of [1, 2, 3, 8]) {
+    const inputs = Array.from({length:n}, (_,i)=>({...files[i%files.length], name:'Gap '+i}));
+    for (const orbit of [false, true]) {
+        const settings = {...orbitSettings, halfCircle, orbit};
+        const rig = api.build(settings, inputs, null);
+        const cards = rig.containingComp.list.filter(l=>l.parent===rig).reverse();
+        const sample = (card, time=1.2) => orbit ? orbitSample(rig,card,'ADBE Position',time) : arcSample(rig,card,'ADBE Position');
+        const baseline = cards.map(card=>sample(card));
+        for (const gap of [24, 64, 0]) {
+            api.configure(rig, {...settings, gap});
+            const positions = cards.map(card=>sample(card));
+            near(api.control(rig,'Radius').value, settings.radius);
+            near(api.control(rig,'Image Size').value, settings.size);
+            for (let i=0;i<n;i++) {
+                if (n===1 || gap===0) { near(positions[i][0],baseline[i][0]); near(positions[i][1],baseline[i][1]); }
+                if (i) near(distance(positions[i-1],positions[i])-distance(baseline[i-1],baseline[i]),gap);
+                if (!halfCircle && n>1 && i===n-1) near(distance(positions[i],positions[0])-distance(baseline[i],baseline[0]),gap);
+                const scale = orbit ? orbitSample(rig,cards[i],'ADBE Scale',1.2) : vm.runInNewContext(cards[i].property('ADBE Transform Group').property('ADBE Scale').expression,
+                    {parent:{effect:name=>()=>api.control(rig,name).value},thisLayer:{source:cards[i].source},thisComp:rig.containingComp});
+                near(scale[0]*Math.max(cards[i].source.width*cards[i].source.pixelAspect,cards[i].source.height)/100,settings.size);
+            }
+            if (orbit) for (const reverse of [false,true]) {
+                api.control(rig,'Orbit Clockwise').setValue(reverse?1:0);
+                for (let i=0;i<n;i++) {
+                    const card=cards[reverse?(n-i)%n:i], time=2.9+i*1.4;
+                    const focus=sample(card,time); near(focus[0],0); near(focus[1],0);
+                    near(orbitSample(rig,card,'blur',time),0);
+                    const end=sample(card,api.orbitDuration(settings,n)), start=sample(card,0);
+                    near(end[0],start[0]); near(end[1],start[1]);
+                }
+            }
+        }
+    }
+}
+// Published rigs do not gain effects on opening. Update installs Gap once and preserves sources.
+for (const legacyRadius of [false,true]) {
+    const rig=api.build({...s,halfCircle:true},files,null);
+    const cards=rig.containingComp.list.filter(l=>l.parent===rig).reverse();
+    const effects=rig.property('ADBE Effect Parade');
+    effects.effects=effects.effects.filter(e=>e.name!=='Gap');
+    for (const card of cards) {
+        const p=card.property('ADBE Transform Group').property('ADBE Position');
+        p.expression=p.expression.replace(/^if \(n > 1\) \{ r \+= [^\n]+\n/m,'');
+        if (legacyRadius) p.expression=p.expression.replace('var r = Math.max(0, parent.effect("Radius")(1));\n','var r = parent.effect("Radius")(1); ');
+    }
+    const baseline=cards.map(c=>arcSample(rig,c,'ADBE Position'));
+    app.project.activeItem=rig.containingComp;
+    const count=effects.effects.length, expressions=cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression);
+    vm.runInContext(source,uiContext);
+    assert.equal(inputFor('Gap (px)').text,'0');
+    assert.equal(effects.effects.length,count);
+    assert.deepEqual(cards.map(c=>c.property('ADBE Transform Group').property('ADBE Position').expression),expressions);
+    inputFor('Gap (px)').text='36.5'; find('button','Update Carousel').onClick();
+    find('button','Update Carousel').onClick();
+    assert.equal(alerts.length,0); assert.equal(effects.effects.length,count+1);
+    near(distance(arcSample(rig,cards[0],'ADBE Position'),arcSample(rig,cards[1],'ADBE Position'))-distance(baseline[0],baseline[1]),36.5);
+    vm.runInContext(source,uiContext);
+    assert.equal(inputFor('Gap (px)').text,'36.5');
+    for (const value of ['-1','Infinity','abc','30001','']) {
+        inputFor('Gap (px)').text=value; find('button','Update Carousel').onClick();
+        assert.match(alerts.pop(),/Gap/); near(api.control(rig,'Gap').value,36.5);
+    }
+    const prop=api.control(rig,'Gap'); prop.numKeys=2; rig.containingComp.time=3;
+    inputFor('Gap (px)').text='48'; find('button','Update Carousel').onClick();
+    assert.deepEqual(Array.from(prop.lastKey),[3,48]); assert.equal(prop.numKeys,2);
+    assert.equal(rig.containingComp.numLayers,4); assert.equal(app.undoDepth,0);
+}
+// Actual creation callback persists the chosen gap.
+find('dropdownlist').selection=find('dropdownlist').items[0]; find('dropdownlist').onChange();
+inputFor('Gap (px)').text='40';
+find('checkbox','Add to the active composition').value=false;
+app.project.selection=[existing]; find('button','Use Project Selection').onClick();
+find('button','Create Radial Carousel').onClick(); assert.equal(alerts.length,0);
+near(api.control(app.project.activeItem.list[0],'Gap').value,40);
+console.log('PASS: Gap measured spacing, unchanged image size, zero/single image, both arcs and modes/directions, focus/loop, old-rig upgrade, create/update/reopen, validation, and keyed controls.');
 console.log(`PASS: ${checks} numerical assertions, JSX syntax, input validation, import rollback, undo balancing, and keyframe update behavior.`);
 console.log('PASS: project source reuse, mixed sources, failure preservation, selection filtering/deduplication, actual panel callbacks, and destination fallback (stubbed AE/ScriptUI host).');
 console.log('PASS: rounded/square mask geometry, corner radius clamping/PAR, GUI load/apply, old-rig upgrades, and existing-mask preservation.');

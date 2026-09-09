@@ -1,11 +1,12 @@
 # Radial Carousel
 
-**Version 1.6.1.** An After Effects ScriptUI panel for
+**Version 1.6.2.** An After Effects ScriptUI panel for
 creating and editing 2D carousels from still images and precomps. Includes the new
 **Unfolded Orbit** sequence, continuous upright/radial orbits, rounded corners,
-seeded arrangements, recovery of existing carousels, and a **180° half-circle** layout.
+seeded arrangements, recovery of existing carousels, a **180° half-circle** layout,
+and adjustable **Gap** between images.
 
-This version combines Unfolded Orbit with the **Layout → Arc** control. Close and
+This version combines Unfolded Orbit with **Layout → Arc** and **Gap (px)**. Close and
 reopen the updated script to load the new controls; replace any installed copy too.
 
 [Download Radial Carousel.jsx](https://github.com/geraldjove/after-effects-radial-carousel/raw/refs/heads/main/Radial%20Carousel.jsx), or use **Code > Download ZIP** for the script, documentation, and tests.
@@ -25,7 +26,7 @@ To create another carousel:
 
 1. Choose **Create new carousel** in the dropdown. In AE's **Project panel**, select your imported still images or their compositions, then click **Use Project Selection** in the **Images** tab. Each selected precomp becomes one carousel item and appears with a **[Comp]** label. To import images from disk instead, click **Add Files...**. You can mix images and precomps, add another batch, remove selected entries, or clear the list.
 2. Choose **Continuous orbit** or **Unfolded Orbit** in the **Animation** dropdown.
-3. In **Layout**, choose **Arc → Full circle (360 degrees)** or **Half circle (180 degrees)**, then set radius, image size, direction, rounded corners, and optional shuffle. Continuous orbit also exposes speed and orientation. Unfolded Orbit keeps images upright.
+3. In **Layout**, choose **Arc → Full circle (360 degrees)** or **Half circle (180 degrees)**, then set radius, gap, image size, direction, rounded corners, and optional shuffle. Continuous orbit also exposes speed and orientation. Unfolded Orbit keeps images upright.
 4. For Unfolded Orbit, use **Timing / Focus** to set timing, zoom, blur, and side-image size. Eight images with the default timing give a 17-second loop.
 5. In **Composition**, choose the active composition or enter settings for a new one. New Unfolded Orbit compositions automatically fit the loop duration. The first selection of this mode suggests a 1080 × 1440 canvas when creating a new composition.
 6. Click **Create Radial Carousel**, then preview the timeline. The new carousel is loaded into update mode automatically.
@@ -47,6 +48,25 @@ Unfolded Orbit visits every image with either arc choice. With a half circle, th
 transition between the two endpoints crosses the empty half of the circle. Hold
 and transition durations remain the same, so that larger gap moves faster than
 the smaller gaps. Focus blur and side-image scaling follow the chosen spacing.
+
+## Gap between images
+
+Increase **Layout → Gap (px)** to spread images farther apart without resizing them.
+It expands the carousel from the base **Radius** and keeps the chosen 180°/360° span.
+`0` preserves the original layout; a single image stays in place. For an existing
+carousel, set Gap and click **Update Carousel**. Reopening restores the value.
+
+Gap adds the chosen number of pixels to the distance between neighboring image
+centers at normal controller scale. For example, `40` adds 40 pixels of spacing to
+each neighboring pair. Existing image overlap may require a larger value. Different
+image shapes and rotations can have different visible edge clearances; this control
+does not calculate an exact edge-to-edge margin. Scaling the controller scales the
+gap too. Larger gaps may require a larger composition to keep every image in view.
+
+Gap works with both animation modes, shuffle, and either orientation. In Unfolded
+Orbit it changes the spread/focus layout; the opening and closing collapse still
+brings the cards together. The controller's **Gap** slider can be keyframed. Older
+rigs open with `0` and gain the control and spacing expression when updated.
 
 ## Unfolded Orbit
 
@@ -151,16 +171,19 @@ and a full 17-second H.264 movie. Both native tests run through **File > Scripts
 Run Script File** and need script file-writing permission for reports/exports.
 The panel itself does not need that preference.
 
-`tests/Arc Test.jsx` is the focused native check for the integrated 180°/360° control:
-GUI creation/reopening/updating, radial geometry, and both Unfolded Orbit directions.
+`tests/Arc Test.jsx` is the focused native check for the integrated Arc and Gap controls:
+GUI creation/reopening/updating, added spacing, unchanged image size, radial geometry,
+and both Unfolded Orbit directions.
 It writes `tests/arc-last-run.txt` and `tests/arc-preview.png`, then removes its
 synthetic project items. Only a completed PASS with successful cleanup counts.
 
-**Integrated Arc verification — 2026-09-10:** the v1.6.1 Node checks pass with 8,392
+**Arc and Gap verification — 2026-09-10:** the v1.6.2 Node checks pass with 9,775
 numerical assertions plus the simulated GUI/recovery checks. Coverage includes both
 arcs, creation and updates, saved setting recovery, single-image layouts, old rigs,
 and Unfolded Orbit focus/blur/scale/loop behavior in both directions with 1/2/3/8/12
-images. The focused native Arc test has no completed report yet; the earlier native
+images, measured gap changes, Gap 0 restoration, old gap-expression upgrades, saved
+and keyed gap controls, and invalid input. The focused native Arc test has no
+completed report yet; the earlier native
 v1.6.0 Orbit result does not verify these newer edits.
 
 Native reports are `tests/last-run.txt` and `tests/orbit-last-run.txt`. Check for a
@@ -202,7 +225,8 @@ stopped at an overwrite prompt, which led to the fresh-filename test fix.
 
 These checks cover this Windows build and synthetic source precomps. They do not
 establish compatibility with older AE versions, macOS, every imported file format,
-or an exact visual match to the reference. They do not verify the v1.6.1 integration.
+or an exact visual match to the reference. They do not verify the v1.6.1 Arc
+integration or v1.6.2 Gap addition.
 
 The extended continuous-orbit native smoke check is **incomplete**: after fixing
 its report header to convert `Date` explicitly to a string, it exported the three

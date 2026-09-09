@@ -1,10 +1,10 @@
-/* Radial Carousel 1.6.1 | 2026-09-10
+/* Radial Carousel 1.6.2 | 2026-09-10
    Run with File > Scripts > Run Script File, or install in ScriptUI Panels.
    No plug-ins, network access, or file-writing permission required.
 */
 (function (thisObj) {
     var TITLE = "Radial Carousel";
-    var VERSION = "1.6.1";
+    var VERSION = "1.6.2";
     var TAG = "RadialCarousel:1";
     var files = [];
     var boundController = null;
@@ -121,7 +121,7 @@
             var focusWeight = 'var delta = (a-parent.effect("Start Angle")(1))*Math.PI/180;\n' +
                 'var d = Math.acos(Math.max(-1,Math.min(1,Math.cos(delta))));\n' +
                 'var f = Math.min(1,d/(step*Math.PI/180*0.85)); f = f*f*(3-2*f);\n';
-            position.expression = angle + 'var r = Math.max(0, parent.effect("Radius")(1));\n' +
+            position.expression = angle + radiusExpression() +
                 'var p;\nif (parent.effect("Unfolded Orbit")(1) > 0.5) {\n' + orbit +
                 'var focus = parent.effect("Start Angle")(1) * Math.PI/180, rad = a * Math.PI/180;\n' +
                 'p = [r*(o[0]*Math.cos(rad)-o[1]*Math.cos(focus)), r*(o[0]*Math.sin(rad)-o[1]*Math.sin(focus))];\n' +
@@ -271,6 +271,19 @@
             'var a = parent.effect("Start Angle")(1) + step * slot;\n';
     }
 
+    function gapControl(layer, settings) {
+        var value = settings.gap;
+        if (value === undefined) { value = 0; }
+        if (!layer.property("ADBE Effect Parade").property("Gap")) {
+            addControl(layer, "ADBE Slider Control", "Gap", value);
+        } else { setControl(layer, "Gap", value); }
+    }
+
+    function radiusExpression() {
+        return 'var r = Math.max(0, parent.effect("Radius")(1));\n' +
+            'if (n > 1) { r += Math.max(0, parent.effect("Gap")(1)) / (2 * Math.sin(step * Math.PI / 360)); }\n';
+    }
+
     function angleExpression(slot, count) {
         // ponytail: O(N) shuffle per image; precompute slots if hundreds of images make previews slow.
         // Custom PRNG keeps the permutation identical across layers, unlike per-layer AE random seeds.
@@ -350,6 +363,7 @@
         cornerControls(layer, settings);
         arrangementControls(layer, settings);
         arcControls(layer, settings);
+        gapControl(layer, settings);
         upgradeArrangement(layer);
         setControl(layer, "Radius", settings.radius);
         setControl(layer, "Image Size", settings.size);
@@ -364,7 +378,15 @@
         var comp = layer.containingComp;
         for (i = 1; i <= comp.numLayers; i++) {
             var child = comp.layer(i);
-            if (child.parent === layer && isCarouselSource(child.source)) { roundImage(child); }
+            if (child.parent === layer && isCarouselSource(child.source)) {
+                roundImage(child);
+                var position = child.property("ADBE Transform Group").property("ADBE Position");
+                if (position.expression.indexOf('parent.effect("Gap")') < 0) {
+                    var upgraded = position.expression.replace(
+                        /^var r = (?:Math\.max\(0, parent\.effect\("Radius"\)\(1\)\)|parent\.effect\("Radius"\)\(1\));\s*/m, radiusExpression());
+                    if (upgraded !== position.expression) { position.expression = upgraded; }
+                }
+            }
         }
         if (settings.orbit || layer.property("ADBE Effect Parade").property("Unfolded Orbit")) {
             orbitControls(layer, settings);
@@ -507,6 +529,7 @@
             cornerControls(controller, settings);
             arrangementControls(controller, settings);
             arcControls(controller, settings);
+            gapControl(controller, settings);
             stage = "Set controller rotation";
             controller.property("ADBE Transform Group").property("ADBE Rotate Z").expression = 'value + (time - inPoint) * effect("Speed (deg/sec)")(1);';
 
@@ -531,7 +554,7 @@
                 // Slot is independent of timeline index, layer names, and other carousels.
                 var angle = angleExpression(i, footage.length);
                 tr.property("ADBE Position").expression = angle +
-                    'var r = Math.max(0, parent.effect("Radius")(1));\n' +
+                    radiusExpression() +
                     'var rad = a * Math.PI / 180;\n[r * Math.cos(rad), r * Math.sin(rad)];';
                 tr.property("ADBE Scale").expression =
                     'var s = Math.max(1, parent.effect("Image Size")(1)) / Math.max(thisLayer.source.width * thisLayer.source.pixelAspect / thisComp.pixelAspect, thisLayer.source.height) * 100;\n[s, s];';
@@ -634,6 +657,8 @@
     var compAtOpen = activeComp();
     var base = compAtOpen ? Math.min(compAtOpen.width, compAtOpen.height) : 1080;
     var radius = field(layout, "Radius (px)", Math.round(base * 0.32));
+    var gap = field(layout, "Gap (px)", 0);
+    gap.helpTip = "Adds space between neighboring image centers by expanding the carousel. Keeps image size; 0 uses the base Radius.";
     var size = field(layout, "Image longest edge (px)", Math.round(base * 0.2));
     var speed = field(layout, "Speed (degrees/sec)", 30);
     speed.helpTip = "Constant speed. 30 degrees/sec completes one revolution in 12 seconds. 0 is static.";
@@ -779,6 +804,8 @@
         startAngle.text = String(control(layer, "Start Angle").value);
         offset.text = String(control(layer, "Image Rotation Offset").value);
         var effects = layer.property("ADBE Effect Parade");
+        gap.text = "0";
+        if (effects.property("Gap")) { gap.text = String(control(layer, "Gap").value); }
         arc.selection = arc.items[0];
         if (effects.property("Half Circle") && control(layer, "Half Circle").value > 0.5) { arc.selection = arc.items[1]; }
         rounded.value = effects.property("Rounded Corners") ? control(layer, "Rounded Corners").value > 0.5 : false;
@@ -909,6 +936,7 @@
     function settings() {
         var result = {
             radius: number(radius.text, "Radius", 0, 100000, false),
+            gap: number(gap.text, "Gap", 0, 30000, false),
             size: number(size.text, "Image size", 1, 30000, false),
             speed: number(speed.text, "Speed", 0, 36000, false) * (clockwise.value ? 1 : -1),
             angle: number(startAngle.text, "Start angle", -36000, 36000, false),

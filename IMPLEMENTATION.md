@@ -1,4 +1,4 @@
-# Unfolded Orbit and Arc layouts — v1.6.1 implementation
+# Unfolded Orbit, Arc layouts, and Gap — implementation
 
 Last verified: 2026-09-10 — source: Gerald's request, existing JSX/tests, and the
 public reference preview at https://108.supply/motion/unfolded-orbit. Gerald also
@@ -40,3 +40,23 @@ v1.6.1 Node suite passes 8,392 numerical assertions and simulated host/recovery 
 The native Unfolded Orbit check completed against the earlier v1.6.0 snapshot;
 v1.6.1 native verification remains pending. The broader continuous-orbit native
 check was interrupted by AE exiting and must not be recorded as passed.
+
+## Gap follow-up
+
+Add Layout → Gap (px), default 0, to increase neighboring image-center spacing by
+expanding the radius while retaining image size and the chosen 180°/360° span.
+For more than one card, a gap g increases radius by g/(2 sin(step/2)); one card
+stays in place. This adds spacing to the existing layout, rather than calculating
+exact clearance between differently shaped or rotated artwork edges.
+
+Change the JSX, README, this record, Node checks, and the focused native Arc test.
+Existing rigs open read-only with Gap 0 and gain the saved/keyframeable control on
+Update. Upgrade only generated radius expressions. Verify measured spacing changes,
+unchanged image sizes, both modes/arcs/directions, old rigs, repeated updates,
+reopening, keyed controls, and invalid input. No new dependencies, database, API,
+authentication, or environment settings. Undo or Gap 0 restores the prior layout;
+published v1.6.1 remains available as the previous script.
+
+Last verified: 2026-09-10 — `node tests/check.cjs` passes 9,775 numerical assertions
+plus simulated AE/ScriptUI/recovery checks on v1.6.2. Native harness syntax passes;
+native execution of the Arc/Gap checks remains pending.
